@@ -1,5 +1,9 @@
 requests 
 beautifulsoup4 
-hazm 
-sqlite3 
 pandas
+lxml
+hazm
+python-dateutil
+deep-translator
+python-dotenv
+pytest
