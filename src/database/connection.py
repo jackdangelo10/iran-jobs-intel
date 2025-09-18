@@ -48,5 +48,26 @@ class DatabaseConnection:
             raise e
         finally:
             cursor.close()
+
+
+    def execute_insert_with_id(self, sql: str, parameters=None) -> int:
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        try:
+            if parameters:
+                cursor.execute(sql, parameters)
+            else:
+                cursor.execute(sql)
+            conn.commit()
+            
+            if cursor.lastrowid is None:
+                raise Exception("Failed to get insert ID - operation may have failed")
+            
+            return cursor.lastrowid
+        except Exception as e:
+            conn.rollback()
+            raise e
+        finally:
+            cursor.close()
     
     
