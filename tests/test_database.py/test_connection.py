@@ -4,7 +4,15 @@ import sqlite3
 from concurrent.futures import ThreadPoolExecutor
 from src.database.connection import DatabaseConnection
 
+
+
+
 class TestDatabaseConnection:
+
+
+    
+    
+
 
     def test_get_connection_works(self, in_memory_db : DatabaseConnection):
 
@@ -28,10 +36,16 @@ class TestDatabaseConnection:
 
 
     def test_get_connection_different_threads(self, in_memory_db : DatabaseConnection):
+        import time
+
+        def get_conn_with_delay():
+            time.sleep(0.01)  # Small delay
+            return in_memory_db.get_connection()
+
 
         with ThreadPoolExecutor(max_workers=2) as executor:
-            future1 = executor.submit(in_memory_db.get_connection)
-            future2 = executor.submit(in_memory_db.get_connection)
+            future1 = executor.submit(get_conn_with_delay)
+            future2 = executor.submit(get_conn_with_delay)
 
             result1 = future1.result()
             result2 = future2.result()
@@ -45,8 +59,6 @@ class TestDatabaseConnection:
         conn = in_memory_db.get_connection()
 
         cursor = conn.cursor()
-        cursor.execute("CREATE TABLE test_table (id INTEGER, name TEXT)")
-
         cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", ('test_table',))
         result = cursor.fetchone()
 
@@ -85,7 +97,8 @@ class TestDatabaseConnection:
 
     
     def test_close_all_cleans_up_connection(self, in_memory_db : DatabaseConnection):
-
+        # Step 1: Get a connection (this creates it)
+        conn = in_memory_db.get_connection()
         assert isinstance(in_memory_db.local.connection, sqlite3.Connection)
         in_memory_db.close_connection()
         assert in_memory_db.local.connection is None
