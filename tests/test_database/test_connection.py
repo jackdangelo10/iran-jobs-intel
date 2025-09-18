@@ -9,14 +9,9 @@ from src.database.connection import DatabaseConnection
 
 class TestDatabaseConnection:
 
+    def test_get_connection_works(self, in_memory_conn : DatabaseConnection):
 
-    
-    
-
-
-    def test_get_connection_works(self, in_memory_db : DatabaseConnection):
-
-        conn = in_memory_db.get_connection()
+        conn = in_memory_conn.get_connection()
 
         assert isinstance(conn, sqlite3.Connection)
 
@@ -27,20 +22,20 @@ class TestDatabaseConnection:
         cursor.close()
     
 
-    def test_get_connection_resuses_same_connection(self, in_memory_db: DatabaseConnection):
+    def test_get_connection_resuses_same_connection(self, in_memory_conn: DatabaseConnection):
 
-        conn1 = in_memory_db.get_connection()
-        conn2 = in_memory_db.get_connection()
+        conn1 = in_memory_conn.get_connection()
+        conn2 = in_memory_conn.get_connection()
 
         assert conn1 is conn2   
 
 
-    def test_get_connection_different_threads(self, in_memory_db : DatabaseConnection):
+    def test_get_connection_different_threads(self, in_memory_conn : DatabaseConnection):
         import time
 
         def get_conn_with_delay():
             time.sleep(0.01)  # Small delay
-            return in_memory_db.get_connection()
+            return in_memory_conn.get_connection()
 
 
         with ThreadPoolExecutor(max_workers=2) as executor:
@@ -52,11 +47,11 @@ class TestDatabaseConnection:
 
             assert result1 is not result2
 
-    def test_execute_with_transaction_success(self, in_memory_db : DatabaseConnection):
-        in_memory_db.execute_with_transaction("CREATE TABLE test_table (id INTEGER, name TEXT)")
+    def test_execute_with_transaction_success(self, in_memory_conn : DatabaseConnection):
+        in_memory_conn.execute_with_transaction("CREATE TABLE test_table (id INTEGER, name TEXT)")
 
 
-        conn = in_memory_db.get_connection()
+        conn = in_memory_conn.get_connection()
 
         cursor = conn.cursor()
         cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", ('test_table',))
@@ -65,16 +60,16 @@ class TestDatabaseConnection:
         assert result is not None
 
 
-    def test_execute_with_transaction_rollback_on_error(self, in_memory_db : DatabaseConnection):
+    def test_execute_with_transaction_rollback_on_error(self, in_memory_conn : DatabaseConnection):
 
 
-        in_memory_db.execute_with_transaction("CREATE TABLE test (id INTEGER)")
+        in_memory_conn.execute_with_transaction("CREATE TABLE test (id INTEGER)")
 
         with pytest.raises(Exception):
-            in_memory_db.execute_with_transaction("INVALID SQL GARBAGE")
+            in_memory_conn.execute_with_transaction("INVALID SQL GARBAGE")
 
         # Step 3: Verify the table still exists (transaction didn't mess up the connection)
-        conn = in_memory_db.get_connection()
+        conn = in_memory_conn.get_connection()
         cursor = conn.cursor()
         cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='test'")
         result = cursor.fetchone()
@@ -82,12 +77,12 @@ class TestDatabaseConnection:
 
         assert result is not None  # Table should still exist
 
-    def test_execute_with_transaction_with_parameters(self, in_memory_db : DatabaseConnection):
+    def test_execute_with_transaction_with_parameters(self, in_memory_conn : DatabaseConnection):
 
-        in_memory_db.execute_with_transaction("CREATE TABLE test (id INTEGER, number INTEGER)")
-        in_memory_db.execute_with_transaction("INSERT INTO test (number) VALUES (?)",(1,))
+        in_memory_conn.execute_with_transaction("CREATE TABLE test (id INTEGER, number INTEGER)")
+        in_memory_conn.execute_with_transaction("INSERT INTO test (number) VALUES (?)",(1,))
 
-        conn = in_memory_db.get_connection()
+        conn = in_memory_conn.get_connection()
         cursor = conn.cursor()
         cursor.execute("SELECT number FROM test")
         result = cursor.fetchone()
@@ -96,9 +91,9 @@ class TestDatabaseConnection:
 
 
     
-    def test_close_all_cleans_up_connection(self, in_memory_db : DatabaseConnection):
+    def test_close_all_cleans_up_connection(self, in_memory_conn : DatabaseConnection):
         # Step 1: Get a connection (this creates it)
-        conn = in_memory_db.get_connection()
-        assert isinstance(in_memory_db.local.connection, sqlite3.Connection)
-        in_memory_db.close_connection()
-        assert in_memory_db.local.connection is None
+        conn = in_memory_conn.get_connection()
+        assert isinstance(in_memory_conn.local.connection, sqlite3.Connection)
+        in_memory_conn.close_connection()
+        assert in_memory_conn.local.connection is None

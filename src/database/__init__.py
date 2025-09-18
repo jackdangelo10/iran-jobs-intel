@@ -15,19 +15,27 @@ class IranJobsDB:
         self.setup_database() # Create tables if they don't exist
 
         self.companies = CompanyOperations(self.db_connection)
-        self.job = JobOperations(self.db_connection)
+        self.jobs = JobOperations(self.db_connection)
         self.scrapes = ScrapeOperations(self.db_connection)
 
         
 
     
     def setup_database(self):
+        conn = self.db_connection.get_connection()
         try:
             for key in TABLE_ORDER:
-                self.db_connection.execute_with_transaction(SCHEMA_SQL[key])
+                if 'indexes' in key:
+                    conn.executescript(SCHEMA_SQL[key])  # Multi-statement
+                else:
+                    conn.execute(SCHEMA_SQL[key])        # Single statement
+            conn.commit()
         except Exception as e:
             print("Database tables initialization failed")
             raise
 
+
+    def close(self):
+        self.db_connection.close_connection()
 
 
