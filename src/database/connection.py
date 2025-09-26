@@ -51,6 +51,7 @@ class DatabaseConnection:
 
 
     def execute_insert_with_id(self, sql: str, parameters=None) -> int:
+        """Executes an INSERT statement and returns the last inserted row ID."""
         conn = self.get_connection()
         cursor = conn.cursor()
         try:

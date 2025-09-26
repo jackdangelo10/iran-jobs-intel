@@ -22,4 +22,11 @@ class TestIranJobsDB:
         assert 'job_postings' in tables
         assert 'companies' in tables
         
-        
+    def test_scrape_operations_basic(self, in_memory_db):
+        # Test basic scraping functionality
+        scrape_id = in_memory_db.scrapes.save_raw_scrape(
+            "irantalent", "test-url", "job_list", 
+            "session-123", "<html>test</html>", 200
+        )
+        assert isinstance(scrape_id, int)
+        assert scrape_id > 0
