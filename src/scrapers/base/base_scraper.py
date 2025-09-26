@@ -25,7 +25,7 @@ class BaseScraper(ABC):
         """Scrape individual job detail page and return structured data"""
         pass
     
-    def run_scraping_session(self, max_pages: int = 5) -> Dict[str, int]:
+    def run_scraping_session(self) -> Dict[str, int]:
         """Main workflow orchestration - same for all scrapers"""
         
         print(f"Starting {self.source_site} scraping session: {self.session_id}")

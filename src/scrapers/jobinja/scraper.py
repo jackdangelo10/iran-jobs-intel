@@ -1,12 +1,12 @@
-# src/scrapers/irantalent/scraper.py
+# src/scrapers/jobinja/scraper.py
 from __future__ import annotations
 from typing import List, Dict, Any, Optional
 import requests
 from src.scrapers.base.base_scraper import BaseScraper
 import time
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, soup
 
-class IranTalentScraper(BaseScraper):
+class JobinjaScraper(BaseScraper):
 
     def __init__(self, database, session_id: str):
         super().__init__(database, session_id)
@@ -16,14 +16,14 @@ class IranTalentScraper(BaseScraper):
         })
 
         # Site URLs - we'll need to discover these
-        self.base_url = "https://irantalent.com"
-        self.jobs_list_url = "https://www.irantalent.com/en/jobs/search"  # You'll tell me what this should be
+        self.base_url = "https://jobinja.ir/"
+        self.jobs_list_url = "https://jobinja.ir/jobs"  # You'll tell me what this should be
         
         # Request settings
         self.request_delay = 2  # Seconds between requests
-
+    
     def get_source_site(self) -> str:
-        return "irantalent"
+        return "jobinja"
     
     def discover_job_urls(self) -> List[str]:
         """Paginate through job search pages and collect job URLs"""
@@ -31,8 +31,9 @@ class IranTalentScraper(BaseScraper):
         page = 1
 
         while True:
-            page_url = f"{self.jobs_list_url}?language=english&page={page}"
+            page_url = f"{self.jobs_list_url}?page={page}"
             print(f"Scraping page {page}: {page_url}")
+
             try:
                 response = self.session.get(page_url, timeout=20)
                 # Save raw HTML
@@ -61,33 +62,37 @@ class IranTalentScraper(BaseScraper):
                 page += 1
 
             except Exception as e:
-                print(f"Error scraping page {page}: {e}")
+                print(f"Error fetching page {page}: {e}")
                 break
-
 
         return all_job_urls
     
     def _is_no_results_page(self, html: str) -> bool:
         """Check if page shows 'no jobs found' message"""
-        return "Your filtered search does not match any jobs" in html 
+        return "متاسفانه‌ برای فیلتر‌های اعمال شده نتیجه‌ای یافت نشد" in html
     
+
     def _extract_job_urls_from_page(self, html: str) -> List[str]:
         """Extract job URLs from job listing page HTML"""
         soup = BeautifulSoup(html, 'html.parser')
         job_urls = []
         
         # Find all job card links based on the structure you provided
-        job_links = soup.select('new-position-card a[href^="/en/job/"]')
+        # Select job title links in the new structure
+        job_links = soup.select('a.c-jobListView__titleLink[href]')
         
         for link in job_links:
             href = link.get('href')
             if href:
-                full_url = f"{self.base_url}{href}"
+                href = str(href)  
+                if href.startswith("http"):
+                    full_url = href
+                else:
+                    full_url = f"{self.base_url}{href}"
                 job_urls.append(full_url)
         
         return job_urls
     
-
 
     def scrape_job_detail(self, job_url: str) -> Dict[str, Any]:
 
