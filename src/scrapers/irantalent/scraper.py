@@ -90,5 +90,77 @@ class IranTalentScraper(BaseScraper):
 
 
     def scrape_job_detail(self, job_url: str) -> Dict[str, Any]:
+        """Scrape individual job detail page and return structured data"""
+        try:
+            response = self.session.get(job_url, timeout=20)
+            # Save raw HTML
+            scrape_id = self.database.scrapes.save_raw_scrape(
+                source_site=self.source_site,
+                source_url=job_url,
+                page_type="job_detail", 
+                scrape_session_id=self.session_id,
+                raw_html=response.text,
+                response_status=response.status_code
+            )
 
-        return {}
+            soup = BeautifulSoup(response.text, 'html.parser')
+
+            title_elem = soup.select_one('h1.margin-bottom-8.font-20.inline-middle.font-weight-500')
+            title = title_elem.get_text().strip() if title_elem else None
+            print(f"Job Title: {title}")
+
+            company_elem = soup.select_one('a[href^="/en/company/"]')
+            company_name = company_elem.get_text().strip() if company_elem else None
+            company_url = f"{self.base_url}{company_elem.get('href')}" if company_elem else None
+            print(f"Company: {company_name}, URL: {company_url}")
+
+            # Extract location
+            location_elem = soup.select_one('span.color-gray')
+            location = location_elem.get_text().strip() if location_elem else None
+            print(f"Location: {location}")
+
+            # Extract job description
+            desc_elem = soup.select_one('p.description.margin-top-12.margin-bottom-8.pre-wrap.text-start')
+            description = desc_elem.get_text().strip() if desc_elem else None
+
+            # Extract employment type
+            employment_elem = soup.select_one('div.margin-y-8 ul li.description')
+            employment_type = employment_elem.get_text().strip().lower().replace(' ', '_') if employment_elem else 'unknown'
+            print(f"Employment Type: {employment_type}")
+
+            # Generate external ID from URL
+            external_id = job_url.split('/')[-1] if '/' in job_url else None
+            print(f"External ID: {external_id}")
+
+            # Extract experience level/seniority
+            seniority_elem = soup.select_one('div.margin-y-8 p:contains("Seniority") + ul li a')
+            experience_level = seniority_elem.get_text().strip().lower().replace(' ', '_') if seniority_elem else 'unknown'
+            print(f"Experience Level: {experience_level}")
+
+            # Extract posted date
+            posted_elem = soup.select_one('p.text-sm.margin-right-16')
+            posted_date_raw = posted_elem.get_text().strip() if posted_elem else None
+
+
+
+
+            job_data = {
+                'raw_scrape_id': scrape_id,
+                'external_id': external_id,
+                'source_site': self.source_site,
+                'source_url': job_url,
+                'title_persian': title,  # Could be English, we'll detect language later
+                'description_persian': description,
+                'company_name_raw': company_name,
+                'location_raw': location,
+                'employment_type': employment_type,
+                'experience_level': experience_level,  # "experienced_professional"
+                'posted_date': posted_date_raw,
+                'processing_status': 'pending'
+            }
+
+        except Exception as e:
+            print(f"Error scraping job detail {job_url}: {e}")
+            return {}
+        
+        return job_data
