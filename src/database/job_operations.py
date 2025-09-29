@@ -115,7 +115,7 @@ class JobOperations:
                 salary_min_original, salary_max_original, salary_currency_original,
                 skills_required_json, skills_preferred_json, technologies_mentioned_json,
                 posted_date, first_seen_date, last_seen_date, processing_status
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """
 
         return self.db_connection.execute_insert_with_id(query, (

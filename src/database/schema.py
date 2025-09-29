@@ -246,24 +246,24 @@ SCHEMA_SQL = {
             is_remote BOOLEAN DEFAULT FALSE,
             
             -- Employment details
-            employment_type TEXT CHECK (employment_type IN ('full_time', 'part_time', 'contract', 'internship', 'freelance', 'unknown')) DEFAULT 'unknown',
-            experience_level TEXT CHECK (experience_level IN ('entry', 'junior', 'mid', 'senior', 'lead', 'executive', 'unknown')) DEFAULT 'unknown',
+            employment_type TEXT DEFAULT 'unknown',
+            experience_level TEXT DEFAULT 'unknown',
             experience_years_min INTEGER,
             experience_years_max INTEGER,
 
             -- Demographics
-            gender_requirement TEXT CHECK (gender_requirement IN ('male', 'female', 'any', 'not_specified')) DEFAULT 'not_specified',  -- ← ADD THIS
+            gender_requirement TEXT CHECK DEFAULT 'not_specified',
         
             
             -- Education requirements
-            education_level TEXT CHECK (education_level IN ('none', 'diploma', 'associate', 'bachelor', 'master', 'phd', 'unknown')) DEFAULT 'unknown',
+            education_level TEXT DEFAULT 'unknown',
             education_field TEXT,
             
             -- Salary
             salary_min_original REAL,
             salary_max_original REAL,
             salary_currency_original TEXT DEFAULT 'IRR',
-            salary_period TEXT CHECK (salary_period IN ('hourly', 'daily', 'monthly', 'yearly', 'project', 'unknown')) DEFAULT 'unknown',
+            salary_period TEXT DEFAULT 'unknown',
             
             -- Converted salaries
             salary_min_irr REAL,

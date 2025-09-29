@@ -98,7 +98,7 @@ class BaseScraper(ABC):
             print(f"Removed {len(job_urls) - len(unique_job_urls)} duplicate URLs")
         
         # Step 2: Record discoveries and update tracking
-        for job_url in job_urls:
+        for job_url in unique_job_urls:
             self.database.jobs.record_job_discovery(
                 self.session_id, job_url, self.source_site
             )
