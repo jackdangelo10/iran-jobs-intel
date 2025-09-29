@@ -237,6 +237,7 @@ SCHEMA_SQL = {
             
             -- Company information
             company_name_raw TEXT,
+            company_url TEXT,
             company_id INTEGER,
             
             -- Location
@@ -249,6 +250,10 @@ SCHEMA_SQL = {
             experience_level TEXT CHECK (experience_level IN ('entry', 'junior', 'mid', 'senior', 'lead', 'executive', 'unknown')) DEFAULT 'unknown',
             experience_years_min INTEGER,
             experience_years_max INTEGER,
+
+            -- Demographics
+            gender_requirement TEXT CHECK (gender_requirement IN ('male', 'female', 'any', 'not_specified')) DEFAULT 'not_specified',  -- ← ADD THIS
+        
             
             -- Education requirements
             education_level TEXT CHECK (education_level IN ('none', 'diploma', 'associate', 'bachelor', 'master', 'phd', 'unknown')) DEFAULT 'unknown',
@@ -304,6 +309,7 @@ SCHEMA_SQL = {
         CREATE INDEX IF NOT EXISTS idx_processing_status ON job_postings(processing_status);
         CREATE INDEX IF NOT EXISTS idx_employment_type ON job_postings(employment_type);
         CREATE INDEX IF NOT EXISTS idx_experience_level ON job_postings(experience_level);
+        CREATE INDEX IF NOT EXISTS idx_gender_requirement ON job_postings(gender_requirement);  
     """,
     
     'job_discoveries': """

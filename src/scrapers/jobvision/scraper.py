@@ -97,5 +97,88 @@ class JobVisionScraper(BaseScraper):
     
     
     def scrape_job_detail(self, job_url: str) -> Dict[str, Any]:
-
-        return {}
+        """Scrape individual job detail page and return structured data"""
+        try:
+            response = self.session.get(job_url, timeout=20)
+            # Save raw HTML
+            scrape_id = self.database.scrapes.save_raw_scrape(
+                source_site=self.source_site,
+                source_url=job_url,
+                page_type="job_detail", 
+                scrape_session_id=self.session_id,
+                raw_html=response.text,
+                response_status=response.status_code
+            )
+            
+            soup = BeautifulSoup(response.text, 'html.parser')
+            
+            # Extract job title
+            title_elem = soup.select_one('h1.text-black.font-size-1.font-weight-bold.py-2.yn*title')
+            title = title_elem.get_text().strip() if title_elem else None
+            print(f"Job Title: {title}")
+            
+            # Extract company name and URL
+            company_elem = soup.select_one('a.text-primary.font-size-2.font-weight-bold.yn_brand')
+            company_name = company_elem.get_text().strip() if company_elem else None
+            
+            company_url = None
+            if company_elem and company_elem.get('href'):
+                href = str(company_elem.get('href'))
+                if href.startswith('/'):
+                    company_url = f"{self.base_url}{href}"
+                else:
+                    company_url = href
+            
+            print(f"Company: {company_name}, URL: {company_url}")
+            
+            if company_url:
+                self.database.companies.track_company_discovery(
+                    company_url, self.source_site, self.session_id
+                )
+            
+            # Extract location
+            location_elem = soup.select_one('span.text-muted.font-size-6.yn*category')
+            location = location_elem.get_text().strip() if location_elem else None
+            print(f"Location: {location}")
+            
+            # Extract job description
+            desc_elem = soup.select_one('h2:contains("Job description and duties") + div')
+            description = desc_elem.get_text().strip() if desc_elem else None
+            
+            # Extract gender requirement
+            gender_elem = soup.select_one('div.requirement-value.text-black.bg-light')
+            gender_requirement = 'not_specified'
+            if gender_elem:
+                gender_text = gender_elem.get_text().strip()
+                if gender_text in ['There is no difference.', 'تفاوت ندارد', 'مهم نیست']:
+                    gender_requirement = 'any'
+                elif 'woman' in gender_text.lower() or 'female' in gender_text.lower() or 'زن' in gender_text or 'خانم' in gender_text:
+                    gender_requirement = 'female'
+                elif 'man' in gender_text.lower() or 'male' in gender_text.lower() or 'مرد' in gender_text or 'آقا' in gender_text:
+                    gender_requirement = 'male'
+            
+            print(f"Gender Requirement: {gender_requirement}")
+            
+            # Generate external ID from URL
+            external_id = job_url.split('/')[-1] if '/' in job_url else None
+            print(f"External ID: {external_id}")
+            
+            job_data = {
+                'raw_scrape_id': scrape_id,
+                'external_id': external_id,
+                'source_site': self.source_site,
+                'source_url': job_url,
+                'title_persian': title,
+                'description_persian': description,
+                'company_name_raw': company_name,
+                'company_url': company_url,
+                'location_raw': location,
+                'gender_requirement': gender_requirement,
+                'processing_status': 'pending'
+            }
+            
+        except Exception as e:
+            print(f"Error scraping job detail {job_url}: {e}")
+            return {}
+        
+        return job_data

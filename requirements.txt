@@ -7,3 +7,4 @@ python-dateutil
 deep-translator
 python-dotenv
 pytest
+selenium

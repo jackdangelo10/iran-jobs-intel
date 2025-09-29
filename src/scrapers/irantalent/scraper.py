@@ -1,19 +1,18 @@
 # src/scrapers/irantalent/scraper.py
 from __future__ import annotations
-from typing import List, Dict, Any, Optional
-import requests
+from typing import List, Dict, Any
 from src.scrapers.base.base_scraper import BaseScraper
 import time
 from bs4 import BeautifulSoup
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support import expected_conditions as EC
+
 
 class IranTalentScraper(BaseScraper):
 
     def __init__(self, database, session_id: str):
-        super().__init__(database, session_id)
-        self.session = requests.Session()
-        self.session.headers.update({
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-        })
+        # Force Selenium for IranTalent since it's an Angular SPA
+        super().__init__(database, session_id, method="selenium")
 
         # Site URLs - we'll need to discover these
         self.base_url = "https://irantalent.com"
@@ -25,6 +24,15 @@ class IranTalentScraper(BaseScraper):
     def get_source_site(self) -> str:
         return "irantalent"
     
+    def _wait_for_page_load(self):
+        """Wait for job cards to load"""
+        try:
+            if self.wait:
+                self.wait.until(EC.presence_of_element_located((By.TAG_NAME, "new-position-card")))
+        except:
+            # If no job cards found, might be end of results
+            pass
+    
     def discover_job_urls(self) -> List[str]:
         """Paginate through job search pages and collect job URLs"""
         all_job_urls = []
@@ -34,24 +42,31 @@ class IranTalentScraper(BaseScraper):
             page_url = f"{self.jobs_list_url}?language=english&page={page}"
             print(f"Scraping page {page}: {page_url}")
             try:
-                response = self.session.get(page_url, timeout=20)
+                html, status_code = self.get_page_content(page_url)
+                print(f"Status Code: {status_code}")
+                if status_code != 200:
+                    print(f"Failed to retrieve page {page}")
+                    break
+                with open("data/html_dumps/debug_irantalent_page.html", "w", encoding="utf-8") as f:
+                    f.write(html)
+
                 # Save raw HTML
                 scrape_id = self.database.scrapes.save_raw_scrape(
                     source_site=self.source_site,
                     source_url=page_url,
                     page_type="job_list", 
                     scrape_session_id=self.session_id,
-                    raw_html=response.text,
-                    response_status=response.status_code
+                    raw_html=html,
+                    response_status=status_code
                 )
 
                 # Check if we've reached the end
-                if self._is_no_results_page(response.text):
+                if self._is_no_results_page(html):
                     print(f"No more results found at page {page}")
                     break
 
                 # Parse job URLs from this page
-                page_job_urls = self._extract_job_urls_from_page(response.text)
+                page_job_urls = self._extract_job_urls_from_page(html)
                 all_job_urls.extend(page_job_urls)
 
                 print(f"Found {len(page_job_urls)} jobs on page {page}")
@@ -92,18 +107,22 @@ class IranTalentScraper(BaseScraper):
     def scrape_job_detail(self, job_url: str) -> Dict[str, Any]:
         """Scrape individual job detail page and return structured data"""
         try:
-            response = self.session.get(job_url, timeout=20)
-            # Save raw HTML
+            html, status_code = self.get_page_content(job_url)
+            print(f"Scraping job detail: {job_url} (Status: {status_code})")
+            if status_code != 200:
+                print(f"Failed to retrieve job detail page: {job_url}")
+                return {}
+                        # Save raw HTML
             scrape_id = self.database.scrapes.save_raw_scrape(
                 source_site=self.source_site,
                 source_url=job_url,
                 page_type="job_detail", 
                 scrape_session_id=self.session_id,
-                raw_html=response.text,
-                response_status=response.status_code
+                raw_html=html,
+                response_status=status_code
             )
 
-            soup = BeautifulSoup(response.text, 'html.parser')
+            soup = BeautifulSoup(html, 'html.parser')
 
             title_elem = soup.select_one('h1.margin-bottom-8.font-20.inline-middle.font-weight-500')
             title = title_elem.get_text().strip() if title_elem else None
@@ -113,6 +132,11 @@ class IranTalentScraper(BaseScraper):
             company_name = company_elem.get_text().strip() if company_elem else None
             company_url = f"{self.base_url}{company_elem.get('href')}" if company_elem else None
             print(f"Company: {company_name}, URL: {company_url}")
+
+            if company_url:
+                self.database.companies.track_company_discovery(
+                    company_url, self.source_site, self.session_id
+                )
 
             # Extract location
             location_elem = soup.select_one('span.color-gray')
@@ -141,7 +165,19 @@ class IranTalentScraper(BaseScraper):
             posted_elem = soup.select_one('p.text-sm.margin-right-16')
             posted_date_raw = posted_elem.get_text().strip() if posted_elem else None
 
+            # Extract gender requirement (check title and description)
+            gender_requirement = 'not_specified'
 
+            # Convert to lowercase safely
+            title_text = (title or '').lower()
+            description_text = (description or '').lower()
+
+            if '(female)' in title_text or (title and 'خانم' in title) or 'female' in description_text:
+                gender_requirement = 'female'
+            elif '(male)' in title_text or (title and 'آقا' in title) or 'male' in description_text:
+                gender_requirement = 'male'
+
+            print(f"Gender Requirement: {gender_requirement}")
 
 
             job_data = {
@@ -152,10 +188,12 @@ class IranTalentScraper(BaseScraper):
                 'title_persian': title,  # Could be English, we'll detect language later
                 'description_persian': description,
                 'company_name_raw': company_name,
+                'company_url': company_url, 
                 'location_raw': location,
                 'employment_type': employment_type,
-                'experience_level': experience_level,  # "experienced_professional"
+                'experience_level': experience_level,  # "experienced_professional", can be normalized later
                 'posted_date': posted_date_raw,
+                'gender_requirement': gender_requirement,
                 'processing_status': 'pending'
             }
 

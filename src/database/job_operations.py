@@ -110,11 +110,12 @@ class JobOperations:
             INSERT INTO job_postings (
                 raw_scrape_id, external_id, source_site, source_url,
                 title_persian, title_english, description_persian, description_english,
-                company_name_raw, location_raw, employment_type, experience_level,
+                company_name_raw, company_url, location_raw, employment_type, experience_level,
+                gender_requirement, education_level,
                 salary_min_original, salary_max_original, salary_currency_original,
                 skills_required_json, skills_preferred_json, technologies_mentioned_json,
                 posted_date, first_seen_date, last_seen_date, processing_status
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """
 
         return self.db_connection.execute_insert_with_id(query, (
@@ -127,9 +128,12 @@ class JobOperations:
             job_data.get('description_persian'),
             job_data.get('description_english'),
             job_data.get('company_name_raw'),
+            job_data.get('company_url'),
             job_data.get('location_raw'),
             job_data.get('employment_type'),
             job_data.get('experience_level'),
+            job_data.get('gender_requirement', 'not_specified'),  # ← ADD THIS
+            job_data.get('education_level'),
             job_data.get('salary_min_original'),
             job_data.get('salary_max_original'),
             job_data.get('salary_currency_original'),
