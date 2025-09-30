@@ -252,7 +252,7 @@ SCHEMA_SQL = {
             experience_years_max INTEGER,
 
             -- Demographics
-            gender_requirement TEXT CHECK DEFAULT 'not_specified',
+            gender_requirement TEXT DEFAULT 'unknown',
         
             
             -- Education requirements

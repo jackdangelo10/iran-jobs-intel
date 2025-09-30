@@ -1,30 +1,38 @@
 # src/scrapers/jobvision/scraper.py
 from __future__ import annotations
-from typing import List, Dict, Any, Optional
-import requests
+from typing import List, Dict, Any
 from src.scrapers.base.base_scraper import BaseScraper
 import time
-from bs4 import BeautifulSoup, soup
+from bs4 import BeautifulSoup
 from urllib.parse import urljoin
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support import expected_conditions as EC
 
 class JobVisionScraper(BaseScraper):
 
     def __init__(self, database, session_id: str):
-        super().__init__(database, session_id)
-        self.session = requests.Session()
-        self.session.headers.update({
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-        })
+        # Force Selenium for JobVision
+        super().__init__(database, session_id, method="selenium")
 
-        # Site URLs - we'll need to discover these
+        # Site URLs
         self.base_url = "https://jobvision.ir/"
-        self.jobs_list_url = "https://jobvision.ir/jobs"  # You'll tell me what this should be
+        self.jobs_list_url = "https://jobvision.ir/jobs"
         
         # Request settings
         self.request_delay = 2  # Seconds between requests
 
     def get_source_site(self) -> str:
         return "jobvision"
+    
+    def _wait_for_page_load(self):
+        """Wait for job listings to load"""
+        try:
+            if self.wait:
+                # Wait for job links to appear
+                self.wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, 'a[href^="/jobs/"]')))
+        except:
+            # If no job links found, might be end of results
+            pass
     
     def discover_job_urls(self) -> List[str]:
         """Paginate through job search pages and collect job URLs"""
@@ -33,46 +41,61 @@ class JobVisionScraper(BaseScraper):
 
         while True:
             page_url = f"{self.jobs_list_url}?page={page}"
-            while True:
-                page_url = f"{self.jobs_list_url}?page={page}"
-                print(f"Scraping page {page}: {page_url}")
+            print(f"Scraping page {page}: {page_url}")
 
-                try:
-                    response = self.session.get(page_url, timeout=20)
-                    # Save raw HTML
-                    scrape_id = self.database.scrapes.save_raw_scrape(
-                        source_site=self.source_site,
-                        source_url=page_url,
-                        page_type="job_list", 
-                        scrape_session_id=self.session_id,
-                        raw_html=response.text,
-                        response_status=response.status_code
-                    )
-
-                    # Check if we've reached the end
-                    if self._is_no_results_page(response.text):
-                        print(f"No more results found at page {page}")
-                        break
-
-                    # Parse job URLs from this page
-                    page_job_urls = self._extract_job_urls_from_page(response.text)
-                    all_job_urls.extend(page_job_urls)
-
-                    print(f"Found {len(page_job_urls)} jobs on page {page}")
-                    
-                    # Polite delay
-                    time.sleep(self.request_delay)
-                    page += 1
-
-                except Exception as e:
-                    print(f"Error fetching page {page}: {e}")
+            try:
+                html, status_code = self.get_page_content(page_url)
+                print(f"Status Code: {status_code}")
+                
+                if status_code != 200:
+                    print(f"Failed to retrieve page {page}")
                     break
 
-            return all_job_urls
+                # Save raw HTML
+                scrape_id = self.database.scrapes.save_raw_scrape(
+                    source_site=self.source_site,
+                    source_url=page_url,
+                    page_type="job_list", 
+                    scrape_session_id=self.session_id,
+                    raw_html=html,
+                    response_status=status_code
+                )
+
+                # Check if we've reached the end
+                if self._is_no_results_page(html):
+                    print(f"No more results found at page {page}")
+                    break
+
+                # Parse job URLs from this page
+                page_job_urls = self._extract_job_urls_from_page(html)
+                all_job_urls.extend(page_job_urls)
+
+                print(f"Found {len(page_job_urls)} jobs on page {page}")
+                
+                # Polite delay
+                time.sleep(self.request_delay)
+                page += 1
+
+            except Exception as e:
+                print(f"Error fetching page {page}: {e}")
+                break
+
+        return all_job_urls
     
     def _is_no_results_page(self, html: str) -> bool:
         """Check if page shows 'no jobs found' message"""
-        return "فرصت شغلی برای جستجوی شما پیدا نشد" in html
+        soup = BeautifulSoup(html, 'html.parser')
+        
+        # Check if the empty state component is actually visible/active
+        empty_state = soup.select_one('app-empty-state.ng-star-inserted')
+        if empty_state:
+            # Check if it has display content (not just ng-star-inserted)
+            # The empty state is shown when there are actually no results
+            return 'فرصت شغلی برای جستجوی شما پیدا نشد' in empty_state.get_text()
+        
+        # Also check if there are any job cards - if yes, definitely not empty
+        job_cards = soup.select('a[href^="/jobs/"]')
+        return len(job_cards) == 0
     
 
     def _extract_job_urls_from_page(self, html: str) -> List[str]:
@@ -99,18 +122,24 @@ class JobVisionScraper(BaseScraper):
     def scrape_job_detail(self, job_url: str) -> Dict[str, Any]:
         """Scrape individual job detail page and return structured data"""
         try:
-            response = self.session.get(job_url, timeout=20)
+            html, status_code = self.get_page_content(job_url)
+            print(f"Scraping job detail: {job_url} (Status: {status_code})")
+            
+            if status_code != 200:
+                print(f"Failed to retrieve job detail page: {job_url}")
+                return {}
+            
             # Save raw HTML
             scrape_id = self.database.scrapes.save_raw_scrape(
                 source_site=self.source_site,
                 source_url=job_url,
                 page_type="job_detail", 
                 scrape_session_id=self.session_id,
-                raw_html=response.text,
-                response_status=response.status_code
+                raw_html=html,
+                response_status=status_code
             )
             
-            soup = BeautifulSoup(response.text, 'html.parser')
+            soup = BeautifulSoup(html, 'html.parser')
             
             # Extract job title
             title_elem = soup.select_one('h1.text-black.font-size-1.font-weight-bold.py-2.yn*title')

@@ -132,7 +132,7 @@ class JobOperations:
             job_data.get('location_raw'),
             job_data.get('employment_type'),
             job_data.get('experience_level'),
-            job_data.get('gender_requirement', 'not_specified'),  # ← ADD THIS
+            job_data.get('gender_requirement'),
             job_data.get('education_level'),
             job_data.get('salary_min_original'),
             job_data.get('salary_max_original'),

@@ -166,7 +166,7 @@ class IranTalentScraper(BaseScraper):
             posted_date_raw = posted_elem.get_text().strip() if posted_elem else None
 
             # Extract gender requirement (check title and description)
-            gender_requirement = 'not_specified'
+            gender_requirement = 'unknown'
 
             # Convert to lowercase safely
             title_text = (title or '').lower()

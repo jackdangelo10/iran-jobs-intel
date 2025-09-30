@@ -29,7 +29,7 @@ class BaseScraper(ABC):
             self._setup_selenium()
 
     def _setup_selenium(self):
-        """Initialize Selenium WebDriver"""
+        """Initialize Selenium WebDriver with anti-detection settings"""
         chrome_options = Options()
         chrome_options.add_argument('--headless')
         chrome_options.add_argument('--no-sandbox')
@@ -38,8 +38,24 @@ class BaseScraper(ABC):
         chrome_options.add_argument('--window-size=1920,1080')
         chrome_options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
         
+        # Additional anti-detection measures
+        chrome_options.add_argument('--disable-blink-features=AutomationControlled')
+        chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
+        chrome_options.add_experimental_option('useAutomationExtension', False)
+        
         self.driver = webdriver.Chrome(options=chrome_options)
-        self.wait = WebDriverWait(self.driver, 20)
+        
+        # Remove webdriver property to avoid detection
+        self.driver.execute_cdp_cmd('Page.addScriptToEvaluateOnNewDocument', {
+            'source': '''
+                Object.defineProperty(navigator, 'webdriver', {
+                    get: () => undefined
+                })
+            '''
+        })
+        
+        # Increase timeout to 40 seconds for challenge pages
+        self.wait = WebDriverWait(self.driver, 40)
     
     def get_page_content(self, url: str, timeout: int = 20) -> tuple[str, int]:
         """Get page content using the configured method"""
@@ -86,50 +102,55 @@ class BaseScraper(ABC):
     
     def run_scraping_session(self) -> Dict[str, int]:
         """Main workflow orchestration - same for all scrapers"""
+        try:
         
-        print(f"Starting {self.source_site} scraping session: {self.session_id}")
-        
-        # Step 1: Discover job URLs by paginating on source url
-        job_urls = self.discover_job_urls()
-        print(f"Discovered {len(job_urls)} job URLs")
+            print(f"Starting {self.source_site} scraping session: {self.session_id}")
+            
+            # Step 1: Discover job URLs by paginating on source url
+            job_urls = self.discover_job_urls()
+            print(f"Discovered {len(job_urls)} job URLs")
 
-        unique_job_urls = list(dict.fromkeys(job_urls))  # Preserves order, removes dupes
-        if len(unique_job_urls) != len(job_urls):
-            print(f"Removed {len(job_urls) - len(unique_job_urls)} duplicate URLs")
-        
-        # Step 2: Record discoveries and update tracking
-        for job_url in unique_job_urls:
-            self.database.jobs.record_job_discovery(
-                self.session_id, job_url, self.source_site
-            )
-            self.database.jobs.update_job_tracking(
-                job_url, self.source_site, self.session_id
-            )
-        
-        # Step 3: Get jobs needing detail scraping
-        unscraped_jobs = self.database.jobs.get_jobs_needing_scraping()
-        
-        # Step 4: Scrape job details
-        scraped_count = 0
-        failed_count = 0
-        
-        for job in unscraped_jobs:
-            try:
-                job_data = self.scrape_job_detail(job['job_url'])
-                if job_data:
-                    self.database.jobs.save_job_posting(job_data)
-                    self.database.jobs.mark_job_scraped(job['job_url'], success=True)
-                    scraped_count += 1
-                else:
+            unique_job_urls = list(dict.fromkeys(job_urls))  # Preserves order, removes dupes
+            if len(unique_job_urls) != len(job_urls):
+                print(f"Removed {len(job_urls) - len(unique_job_urls)} duplicate URLs")
+            
+            # Step 2: Record discoveries and update tracking
+            for job_url in unique_job_urls:
+                self.database.jobs.record_job_discovery(
+                    self.session_id, job_url, self.source_site
+                )
+                self.database.jobs.update_job_tracking(
+                    job_url, self.source_site, self.session_id
+                )
+            
+            # Step 3: Get jobs needing detail scraping
+            unscraped_jobs = self.database.jobs.get_jobs_needing_scraping()
+            
+            # Step 4: Scrape job details
+            scraped_count = 0
+            failed_count = 0
+            
+            for job in unscraped_jobs:
+                try:
+                    job_data = self.scrape_job_detail(job['job_url'])
+                    if job_data:
+                        self.database.jobs.save_job_posting(job_data)
+                        self.database.jobs.mark_job_scraped(job['job_url'], success=True)
+                        scraped_count += 1
+                    else:
+                        self.database.jobs.mark_job_scraped(job['job_url'], success=False)
+                        failed_count += 1
+                except Exception as e:
+                    print(f"Failed to scrape {job['job_url']}: {e}")
                     self.database.jobs.mark_job_scraped(job['job_url'], success=False)
                     failed_count += 1
-            except Exception as e:
-                print(f"Failed to scrape {job['job_url']}: {e}")
-                self.database.jobs.mark_job_scraped(job['job_url'], success=False)
-                failed_count += 1
-        
-        return {
-            'discovered': len(job_urls),
-            'scraped': scraped_count,
-            'failed': failed_count
-        }
+            
+            return {
+                'discovered': len(job_urls),
+                'scraped': scraped_count,
+                'failed': failed_count
+            }
+    
+        finally:
+                # Always cleanup Selenium
+                self.cleanup()
