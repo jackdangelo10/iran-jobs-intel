@@ -8,3 +8,6 @@ deep-translator
 python-dotenv
 pytest
 selenium
+psycopg[binary]
+psycopg-pool
+google-cloud-secret-manager
