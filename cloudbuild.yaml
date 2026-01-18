@@ -137,7 +137,7 @@ steps:
 timeout: 1200s
 
 options:
-  machineType: 'E2_HIGHCPU_4'
+  machineType: E2_HIGHCPU_4
   logging: CLOUD_LOGGING_ONLY
 
 substitutions:
