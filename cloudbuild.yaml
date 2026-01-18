@@ -137,8 +137,8 @@ steps:
 timeout: 1200s
 
 options:
-  machineType: N1_STANDARD_1
+  machineType: E2_STANDARD_4
   logging: CLOUD_LOGGING_ONLY
 
 substitutions:
-  _REGION: 'us-central1'
+  _REGION: us-central1
