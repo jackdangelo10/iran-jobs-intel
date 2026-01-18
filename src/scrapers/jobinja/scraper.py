@@ -1,7 +1,9 @@
 # src/scrapers/jobinja/scraper.py
 from __future__ import annotations
-from typing import List, Dict, Any
+from typing import List
 from src.scrapers.base.base_scraper import BaseScraper
+from src.database.models import JobPosting
+from datetime import date
 import time
 import random
 from bs4 import BeautifulSoup
@@ -226,8 +228,8 @@ class JobinjaScraper(BaseScraper):
         
         return job_urls
     
-    def scrape_job_detail(self, job_url: str) -> Dict[str, Any]:
-        """Scrape individual job detail page and return structured data"""
+    def scrape_job_detail(self, job_url: str) -> JobPosting | None:
+        """Scrape individual job detail page and return JobPosting model"""
         try:
             # Random delay
             self._random_delay(self.request_delay_min, self.request_delay_max)
@@ -239,7 +241,7 @@ class JobinjaScraper(BaseScraper):
             if self._is_challenge_page(html):
                 print(f"⚠️ Challenge page on job detail, taking break...")
                 time.sleep(random.uniform(30, 60))
-                return {}
+                return None
             
             self._scroll_page()
             
@@ -290,7 +292,7 @@ class JobinjaScraper(BaseScraper):
                 education_level = 'unknown'
 
             skills_elems = soup.select('li.c-infoBox__item:has(h4:contains("Required skills")) .tags span.black')
-            skills_required = [skill.get_text().strip() for skill in skills_elems] if skills_elems else []
+            skills_required = [skill.get_text().strip() for skill in skills_elems] if skills_elems else None
             
             salary_elem = soup.select_one('li.c-infoBox__item:has(h4:contains("Rights")) .tags span.black')
             salary_raw = salary_elem.get_text().strip() if salary_elem else None
@@ -311,29 +313,32 @@ class JobinjaScraper(BaseScraper):
             else:
                 gender_requirement = 'not_specified'
             
-            print(f"  ✓ {title}")
+            # Create JobPosting model with validation
+            today = date.today()
             
-            job_data = {
-                'raw_scrape_id': scrape_id,
-                'external_id': external_id,
-                'source_site': self.source_site,
-                'source_url': job_url,
-                'title_persian': title,
-                'description_persian': description,
-                'company_name_raw': company_name,
-                'company_url': company_url,
-                'location_raw': location,
-                'employment_type': employment_type,
-                'experience_level': experience_level,
-                'gender_requirement': gender_requirement,
-                'education_level': education_level,
-                'salary_raw': salary_raw,
-                'skills_required': skills_required,
-                'processing_status': 'pending'
-            }
+            job_posting = JobPosting(
+                raw_scrape_id=scrape_id,
+                external_id=external_id,
+                source_site=self.source_site,
+                source_url=job_url,
+                title_persian=title or "",  # Required field
+                description_persian=description,
+                company_name_raw=company_name,
+                company_url=company_url,
+                location_raw=location,
+                employment_type=employment_type,
+                experience_level=experience_level,
+                gender_requirement=gender_requirement,
+                education_level=education_level,
+                skills_required=skills_required,
+                processing_status='pending',
+                first_seen_date=today,
+                last_seen_date=today
+            )
+            
+            print(f"  ✓ Created JobPosting model for: {title}")
+            return job_posting
             
         except Exception as e:
             print(f"❌ Error scraping {job_url}: {e}")
-            return {}
-        
-        return job_data
+            return None

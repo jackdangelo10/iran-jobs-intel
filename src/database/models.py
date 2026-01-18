@@ -138,8 +138,8 @@ class JobPosting(BaseModel):
     technologies_mentioned: list[str] | None = None
     
     # Optional fields - Processing metadata
-    data_quality_score: float | None = Field(None, ge=0, le=1)
-    processing_confidence: float | None = Field(None, ge=0, le=1)
+    data_quality_score: float | None = Field(default=None, ge=0, le=1)
+    processing_confidence: float | None = Field(default=None, ge=0, le=1)
     manual_review_needed: bool = False
     
     # Optional fields - Temporal

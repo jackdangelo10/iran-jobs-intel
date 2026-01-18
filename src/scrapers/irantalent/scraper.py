@@ -1,7 +1,9 @@
 # src/scrapers/irantalent/scraper.py
 from __future__ import annotations
-from typing import List, Dict, Any
+from typing import List
 from src.scrapers.base.base_scraper import BaseScraper
+from src.database.models import JobPosting
+from datetime import date
 import time
 from bs4 import BeautifulSoup
 from selenium.webdriver.common.by import By
@@ -14,9 +16,9 @@ class IranTalentScraper(BaseScraper):
         # Force Selenium for IranTalent since it's an Angular SPA
         super().__init__(database, session_id, method="selenium")
 
-        # Site URLs - we'll need to discover these
+        # Site URLs
         self.base_url = "https://irantalent.com"
-        self.jobs_list_url = "https://www.irantalent.com/en/jobs/search"  # You'll tell me what this should be
+        self.jobs_list_url = "https://www.irantalent.com/en/jobs/search"
         
         # Request settings
         self.request_delay = 2  # Seconds between requests
@@ -47,8 +49,6 @@ class IranTalentScraper(BaseScraper):
                 if status_code != 200:
                     print(f"Failed to retrieve page {page}")
                     break
-                with open("data/html_dumps/debug_irantalent_page.html", "w", encoding="utf-8") as f:
-                    f.write(html)
 
                 # Save raw HTML
                 scrape_id = self.database.scrapes.save_raw_scrape(
@@ -79,7 +79,6 @@ class IranTalentScraper(BaseScraper):
                 print(f"Error scraping page {page}: {e}")
                 break
 
-
         return all_job_urls
     
     def _is_no_results_page(self, html: str) -> bool:
@@ -101,18 +100,17 @@ class IranTalentScraper(BaseScraper):
                 job_urls.append(full_url)
         
         return job_urls
-    
 
-
-    def scrape_job_detail(self, job_url: str) -> Dict[str, Any]:
-        """Scrape individual job detail page and return structured data"""
+    def scrape_job_detail(self, job_url: str) -> JobPosting | None:
+        """Scrape individual job detail page and return JobPosting model"""
         try:
             html, status_code = self.get_page_content(job_url)
             print(f"Scraping job detail: {job_url} (Status: {status_code})")
             if status_code != 200:
                 print(f"Failed to retrieve job detail page: {job_url}")
-                return {}
-                        # Save raw HTML
+                return None
+            
+            # Save raw HTML
             scrape_id = self.database.scrapes.save_raw_scrape(
                 source_site=self.source_site,
                 source_url=job_url,
@@ -124,51 +122,38 @@ class IranTalentScraper(BaseScraper):
 
             soup = BeautifulSoup(html, 'html.parser')
 
+            # Extract all fields
             title_elem = soup.select_one('h1.margin-bottom-8.font-20.inline-middle.font-weight-500')
             title = title_elem.get_text().strip() if title_elem else None
-            print(f"Job Title: {title}")
 
             company_elem = soup.select_one('a[href^="/en/company/"]')
             company_name = company_elem.get_text().strip() if company_elem else None
             company_url = f"{self.base_url}{company_elem.get('href')}" if company_elem else None
-            print(f"Company: {company_name}, URL: {company_url}")
 
             if company_url:
                 self.database.companies.track_company_discovery(
                     company_url, self.source_site, self.session_id
                 )
 
-            # Extract location
             location_elem = soup.select_one('span.color-gray')
             location = location_elem.get_text().strip() if location_elem else None
-            print(f"Location: {location}")
 
-            # Extract job description
             desc_elem = soup.select_one('p.description.margin-top-12.margin-bottom-8.pre-wrap.text-start')
             description = desc_elem.get_text().strip() if desc_elem else None
 
-            # Extract employment type
             employment_elem = soup.select_one('div.margin-y-8 ul li.description')
             employment_type = employment_elem.get_text().strip().lower().replace(' ', '_') if employment_elem else 'unknown'
-            print(f"Employment Type: {employment_type}")
 
-            # Generate external ID from URL
             external_id = job_url.split('/')[-1] if '/' in job_url else None
-            print(f"External ID: {external_id}")
 
-            # Extract experience level/seniority
             seniority_elem = soup.select_one('div.margin-y-8 p:contains("Seniority") + ul li a')
             experience_level = seniority_elem.get_text().strip().lower().replace(' ', '_') if seniority_elem else 'unknown'
-            print(f"Experience Level: {experience_level}")
 
-            # Extract posted date
             posted_elem = soup.select_one('p.text-sm.margin-right-16')
             posted_date_raw = posted_elem.get_text().strip() if posted_elem else None
 
-            # Extract gender requirement (check title and description)
+            # Extract gender requirement
             gender_requirement = 'unknown'
-
-            # Convert to lowercase safely
             title_text = (title or '').lower()
             description_text = (description or '').lower()
 
@@ -177,28 +162,30 @@ class IranTalentScraper(BaseScraper):
             elif '(male)' in title_text or (title and 'آقا' in title) or 'male' in description_text:
                 gender_requirement = 'male'
 
-            print(f"Gender Requirement: {gender_requirement}")
+            # Create JobPosting model with validation
+            today = date.today()
+            
+            job_posting = JobPosting(
+                raw_scrape_id=scrape_id,
+                external_id=external_id,
+                source_site=self.source_site,
+                source_url=job_url,
+                title_persian=title or "",  # Required field, provide empty string if None
+                description_persian=description,
+                company_name_raw=company_name,
+                company_url=company_url,
+                location_raw=location,
+                employment_type=employment_type,
+                experience_level=experience_level,
+                gender_requirement=gender_requirement,
+                processing_status='pending',
+                first_seen_date=today,
+                last_seen_date=today
+            )
 
-
-            job_data = {
-                'raw_scrape_id': scrape_id,
-                'external_id': external_id,
-                'source_site': self.source_site,
-                'source_url': job_url,
-                'title_persian': title,  # Could be English, we'll detect language later
-                'description_persian': description,
-                'company_name_raw': company_name,
-                'company_url': company_url, 
-                'location_raw': location,
-                'employment_type': employment_type,
-                'experience_level': experience_level,  # "experienced_professional", can be normalized later
-                'posted_date': posted_date_raw,
-                'gender_requirement': gender_requirement,
-                'processing_status': 'pending'
-            }
+            print(f"✅ Created JobPosting model for: {title}")
+            return job_posting
 
         except Exception as e:
             print(f"Error scraping job detail {job_url}: {e}")
-            return {}
-        
-        return job_data
+            return None

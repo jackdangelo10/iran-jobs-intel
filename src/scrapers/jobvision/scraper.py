@@ -1,7 +1,9 @@
 # src/scrapers/jobvision/scraper.py
 from __future__ import annotations
-from typing import List, Dict, Any
+from typing import List
 from src.scrapers.base.base_scraper import BaseScraper
+from src.database.models import JobPosting
+from datetime import date
 import time
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin
@@ -97,7 +99,6 @@ class JobVisionScraper(BaseScraper):
         job_cards = soup.select('a[href^="/jobs/"]')
         return len(job_cards) == 0
     
-
     def _extract_job_urls_from_page(self, html: str) -> List[str]:
         soup = BeautifulSoup(html, "html.parser")
         anchors = soup.select('a[href^="/jobs/"]')
@@ -118,16 +119,15 @@ class JobVisionScraper(BaseScraper):
 
         return urls
     
-    
-    def scrape_job_detail(self, job_url: str) -> Dict[str, Any]:
-        """Scrape individual job detail page and return structured data"""
+    def scrape_job_detail(self, job_url: str) -> JobPosting | None:
+        """Scrape individual job detail page and return JobPosting model"""
         try:
             html, status_code = self.get_page_content(job_url)
             print(f"Scraping job detail: {job_url} (Status: {status_code})")
             
             if status_code != 200:
                 print(f"Failed to retrieve job detail page: {job_url}")
-                return {}
+                return None
             
             # Save raw HTML
             scrape_id = self.database.scrapes.save_raw_scrape(
@@ -144,7 +144,6 @@ class JobVisionScraper(BaseScraper):
             # Extract job title
             title_elem = soup.select_one('h1.text-black.font-size-1.font-weight-bold.py-2.yn*title')
             title = title_elem.get_text().strip() if title_elem else None
-            print(f"Job Title: {title}")
             
             # Extract company name and URL
             company_elem = soup.select_one('a.text-primary.font-size-2.font-weight-bold.yn_brand')
@@ -158,8 +157,6 @@ class JobVisionScraper(BaseScraper):
                 else:
                     company_url = href
             
-            print(f"Company: {company_name}, URL: {company_url}")
-            
             if company_url:
                 self.database.companies.track_company_discovery(
                     company_url, self.source_site, self.session_id
@@ -168,7 +165,6 @@ class JobVisionScraper(BaseScraper):
             # Extract location
             location_elem = soup.select_one('span.text-muted.font-size-6.yn*category')
             location = location_elem.get_text().strip() if location_elem else None
-            print(f"Location: {location}")
             
             # Extract job description
             desc_elem = soup.select_one('h2:contains("Job description and duties") + div')
@@ -186,28 +182,31 @@ class JobVisionScraper(BaseScraper):
                 elif 'man' in gender_text.lower() or 'male' in gender_text.lower() or 'مرد' in gender_text or 'آقا' in gender_text:
                     gender_requirement = 'male'
             
-            print(f"Gender Requirement: {gender_requirement}")
-            
             # Generate external ID from URL
             external_id = job_url.split('/')[-1] if '/' in job_url else None
-            print(f"External ID: {external_id}")
             
-            job_data = {
-                'raw_scrape_id': scrape_id,
-                'external_id': external_id,
-                'source_site': self.source_site,
-                'source_url': job_url,
-                'title_persian': title,
-                'description_persian': description,
-                'company_name_raw': company_name,
-                'company_url': company_url,
-                'location_raw': location,
-                'gender_requirement': gender_requirement,
-                'processing_status': 'pending'
-            }
+            # Create JobPosting model with validation
+            today = date.today()
+            
+            job_posting = JobPosting(
+                raw_scrape_id=scrape_id,
+                external_id=external_id,
+                source_site=self.source_site,
+                source_url=job_url,
+                title_persian=title or "",  # Required field
+                description_persian=description,
+                company_name_raw=company_name,
+                company_url=company_url,
+                location_raw=location,
+                gender_requirement=gender_requirement,
+                processing_status='pending',
+                first_seen_date=today,
+                last_seen_date=today
+            )
+            
+            print(f"✅ Created JobPosting model for: {title}")
+            return job_posting
             
         except Exception as e:
             print(f"Error scraping job detail {job_url}: {e}")
-            return {}
-        
-        return job_data
+            return None

@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
-from typing import List, Dict, Any, Optional, Literal
+from typing import List, Literal
 from src.database import IranJobsDB
+from src.database.models import JobPosting
 import requests
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
@@ -96,14 +97,13 @@ class BaseScraper(ABC):
         pass
     
     @abstractmethod
-    def scrape_job_detail(self, job_url: str) -> Dict[str, Any]:
-        """Scrape individual job detail page and return structured data"""
+    def scrape_job_detail(self, job_url: str) -> JobPosting | None:
+        """Scrape individual job detail page and return JobPosting model"""
         pass
     
-    def run_scraping_session(self) -> Dict[str, int]:
+    def run_scraping_session(self) -> dict[str, int]:
         """Main workflow orchestration - same for all scrapers"""
         try:
-        
             print(f"Starting {self.source_site} scraping session: {self.session_id}")
             
             # Step 1: Discover job URLs by paginating on source url
@@ -132,9 +132,10 @@ class BaseScraper(ABC):
             
             for job in unscraped_jobs:
                 try:
-                    job_data = self.scrape_job_detail(job['job_url'])
-                    if job_data:
-                        self.database.jobs.save_job_posting(job_data)
+                    job_posting = self.scrape_job_detail(job['job_url'])
+                    if job_posting:
+                        # Save the JobPosting model
+                        self.database.jobs.save_job_posting(job_posting)
                         self.database.jobs.mark_job_scraped(job['job_url'], success=True)
                         scraped_count += 1
                     else:
@@ -152,5 +153,5 @@ class BaseScraper(ABC):
             }
     
         finally:
-                # Always cleanup Selenium
-                self.cleanup()
+            # Always cleanup Selenium
+            self.cleanup()
