@@ -5,9 +5,9 @@ Handles job URL discovery, lifecycle tracking, and saving job details.
 """
 from __future__ import annotations
 from typing import Any
-from datetime import datetime, timezone
-import json
+from datetime import date
 from .connection import DatabaseConnection
+from .models import JobPosting, JobDiscovery, JobTracking
 
 
 class JobOperations:
@@ -37,6 +37,15 @@ class JobOperations:
         Returns:
             int: ID of the job discovery record
         """
+        # Create and validate model
+        discovery = JobDiscovery(
+            scrape_session_id=scrape_session_id,
+            job_url=job_url,
+            source_site=source_site,
+            company_url=company_url,
+            found_on_page=found_on_page
+        )
+        
         query = """
             INSERT INTO iran_jobs.job_discoveries (
                 scrape_session_id, job_url, company_url, source_site, found_on_page
@@ -47,7 +56,8 @@ class JobOperations:
 
         return self.db_connection.execute_insert_with_id(
             query,
-            (scrape_session_id, job_url, company_url, source_site, found_on_page)
+            (discovery.scrape_session_id, discovery.job_url, discovery.company_url, 
+             discovery.source_site, discovery.found_on_page)
         )
 
     def update_job_tracking(
@@ -79,17 +89,30 @@ class JobOperations:
             """
             self.db_connection.execute_with_transaction(query, (session_id, job_url))
         else:
+            # Create and validate model
+            today = date.today()
+            tracking = JobTracking(
+                job_url=job_url,
+                source_site=source_site,
+                first_seen_session=session_id,
+                last_seen_session=session_id,
+                first_seen_date=today,
+                last_seen_date=today
+            )
+            
             # Insert new tracking record
             query = """
                 INSERT INTO iran_jobs.job_tracking (
                     job_url, source_site, first_seen_session, 
                     last_seen_session, first_seen_date, last_seen_date
                 )
-                VALUES (%s, %s, %s, %s, CURRENT_DATE, CURRENT_DATE)
+                VALUES (%s, %s, %s, %s, %s, %s)
             """
             self.db_connection.execute_with_transaction(
                 query, 
-                (job_url, source_site, session_id, session_id)
+                (tracking.job_url, tracking.source_site, 
+                 tracking.first_seen_session, tracking.last_seen_session,
+                 tracking.first_seen_date, tracking.last_seen_date)
             )
 
     def _get_job_tracking(self, job_url: str) -> bool:
@@ -161,23 +184,31 @@ class JobOperations:
         
         self.db_connection.execute_with_transaction(query, (job_url,))
 
-    def save_job_posting(self, job_data: dict[str, Any]) -> int:
+    def save_job_posting(self, job_data: dict[str, Any] | JobPosting) -> int:
         """
         Save a scraped job posting to the database.
         
         Args:
-            job_data: Dict containing all job posting fields
+            job_data: Dict or JobPosting model with job data
             
         Returns:
             int: ID of the inserted job posting
         """
-        # Handle JSON fields
-        skills_required = json.dumps(job_data.get('skills_required', [])) if job_data.get('skills_required') else None
-        skills_preferred = json.dumps(job_data.get('skills_preferred', [])) if job_data.get('skills_preferred') else None
-        technologies_mentioned = json.dumps(job_data.get('technologies_mentioned', [])) if job_data.get('technologies_mentioned') else None
-
-        # Handle date - use current date for first/last seen
-        today = datetime.now(timezone.utc).date().isoformat()
+        # Convert dict to model if needed (validates data)
+        if isinstance(job_data, dict):
+            # Set defaults for required date fields if not provided
+            today = date.today()
+            if 'first_seen_date' not in job_data:
+                job_data['first_seen_date'] = today
+            if 'last_seen_date' not in job_data:
+                job_data['last_seen_date'] = today
+            
+            job = JobPosting(**job_data)
+        else:
+            job = job_data
+        
+        # Convert to database format (handles JSON serialization)
+        db_data = job.to_db_dict()
         
         query = """
             INSERT INTO iran_jobs.job_postings (
@@ -197,29 +228,50 @@ class JobOperations:
         """
 
         return self.db_connection.execute_insert_with_id(query, (
-            job_data.get('raw_scrape_id'),
-            job_data.get('external_id'),
-            job_data.get('source_site'),
-            job_data.get('source_url'),
-            job_data.get('title_persian'),
-            job_data.get('title_english'),
-            job_data.get('description_persian'),
-            job_data.get('description_english'),
-            job_data.get('company_name_raw'),
-            job_data.get('company_url'),
-            job_data.get('location_raw'),
-            job_data.get('employment_type'),
-            job_data.get('experience_level'),
-            job_data.get('gender_requirement'),
-            job_data.get('education_level'),
-            job_data.get('salary_min_original'),
-            job_data.get('salary_max_original'),
-            job_data.get('salary_currency_original'),
-            skills_required,
-            skills_preferred,
-            technologies_mentioned,
-            job_data.get('posted_date'),
-            job_data.get('first_seen_date', today),
-            job_data.get('last_seen_date', today),
-            job_data.get('processing_status', 'pending')
+            db_data.get('raw_scrape_id'),
+            db_data.get('external_id'),
+            db_data.get('source_site'),
+            db_data.get('source_url'),
+            db_data.get('title_persian'),
+            db_data.get('title_english'),
+            db_data.get('description_persian'),
+            db_data.get('description_english'),
+            db_data.get('company_name_raw'),
+            db_data.get('company_url'),
+            db_data.get('location_raw'),
+            db_data.get('employment_type'),
+            db_data.get('experience_level'),
+            db_data.get('gender_requirement'),
+            db_data.get('education_level'),
+            db_data.get('salary_min_original'),
+            db_data.get('salary_max_original'),
+            db_data.get('salary_currency_original'),
+            db_data.get('skills_required_json'),
+            db_data.get('skills_preferred_json'),
+            db_data.get('technologies_mentioned_json'),
+            db_data.get('posted_date'),
+            db_data.get('first_seen_date'),
+            db_data.get('last_seen_date'),
+            db_data.get('processing_status', 'pending')
         ))
+
+    def get_unprocessed_jobs(self, limit: int = 100) -> list[dict[str, Any]]:
+        """
+        Get job postings that need processing (translation, extraction, etc.).
+        
+        Args:
+            limit: Maximum number of jobs to return
+            
+        Returns:
+            List of dicts with job posting data
+        """
+        query = """
+            SELECT id, title_persian, description_persian, company_name_raw, 
+                   location_raw, source_site, external_id
+            FROM iran_jobs.job_postings
+            WHERE processing_status = 'pending'
+            ORDER BY first_seen_date DESC
+            LIMIT %s
+        """
+        
+        return self.db_connection.fetchall(query, (limit,))

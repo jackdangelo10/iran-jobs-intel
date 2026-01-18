@@ -11,3 +11,4 @@ selenium
 psycopg[binary]
 psycopg-pool
 google-cloud-secret-manager
+pydantic
