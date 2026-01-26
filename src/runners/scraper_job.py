@@ -2,11 +2,14 @@
 """
 Cloud Run Job entry point for scraping Iranian job sites.
 
+REFACTORED FOR PARALLEL SCRAPING:
+- Phase 1: Sequential discovery (find all job URLs)
+- Phase 2: Parallel detail scraping (6 workers scrape simultaneously)
+
 This job:
-1. Scrapes IranTalent, Jobinja, and JobVision
-2. Discovers job URLs from listing pages
-3. Scrapes detailed job information
-4. Stores raw HTML and structured data in PostgreSQL
+1. Scrapes IranTalent, Jobinja, and JobVision sequentially to discover URLs
+2. Distributes discovered jobs to worker pool for parallel scraping
+3. Stores raw HTML and structured data in PostgreSQL
 
 Scheduled to run nightly via Cloud Scheduler.
 """
@@ -21,6 +24,7 @@ from src.database import IranJobsDB
 from src.scrapers.irantalent.scraper import IranTalentScraper
 from src.scrapers.jobinja.scraper import JobinjaScraper
 from src.scrapers.jobvision.scraper import JobVisionScraper
+from src.parallel import WorkerPool
 
 
 # Configure logging
@@ -33,13 +37,14 @@ logger = logging.getLogger(__name__)
 
 def run_scraper_job() -> dict[str, Any]:
     """
-    Main scraping job orchestration.
+    Main scraping job orchestration with parallel execution.
     
-    Scrapes all three Iranian job sites in sequence and stores
-    raw data in the database for later processing.
+    Two-phase approach:
+    1. Discovery: Sequentially discover all job URLs from each site
+    2. Parallel: Use worker pool to scrape job details in parallel
     
     Returns:
-        Dict with results from each scraper
+        Dict with results from each phase
         
     Raises:
         SystemExit: If job fails critically
@@ -48,14 +53,13 @@ def run_scraper_job() -> dict[str, Any]:
     start_time = datetime.now()
     
     logger.info("=" * 80)
-    logger.info(f"🚀 Starting Iran Jobs Scraper Job")
+    logger.info(f"🚀 Starting Iran Jobs Scraper Job (PARALLEL MODE)")
     logger.info(f"📅 Start Time: {start_time.isoformat()}")
     logger.info(f"🆔 Session ID: {session_id}")
     logger.info(f"🌍 Environment: {settings.environment}")
     logger.info("=" * 80)
     
     db = None
-    results: dict[str, Any] = {}
     
     try:
         # Initialize database connection
@@ -63,7 +67,17 @@ def run_scraper_job() -> dict[str, Any]:
         db = IranJobsDB()
         logger.info("✅ Database connected")
         
-        # Define scrapers to run
+        # ====================================================================
+        # PHASE 1: DISCOVERY (Sequential) - ~6 minutes
+        # ====================================================================
+        logger.info("")
+        logger.info("=" * 80)
+        logger.info("📡 PHASE 1: DISCOVERING JOB URLS (Sequential)")
+        logger.info("=" * 80)
+        
+        discovery_start = datetime.now()
+        
+        # Define scrapers for discovery
         scrapers_config = [
             {
                 'name': 'IranTalent',
@@ -82,77 +96,176 @@ def run_scraper_job() -> dict[str, Any]:
             }
         ]
         
-        # Run each scraper
+        # Track discovered jobs for parallel phase
+        all_discovered_jobs = []
+        discovery_results = {}
+        
+        # Run discovery for each site sequentially
         for scraper_config in scrapers_config:
             if not scraper_config['enabled']:
                 logger.info(f"⏭️  Skipping {scraper_config['name']} (disabled)")
                 continue
             
             site_name = scraper_config['name']
+            scraper_class = scraper_config['class']
             
             try:
                 logger.info("-" * 80)
-                logger.info(f"🔍 Starting {site_name} scraper...")
+                logger.info(f"🔍 Discovering URLs from {site_name}...")
                 logger.info("-" * 80)
                 
-                # Initialize scraper
-                scraper = scraper_config['class'](db, session_id)
+                # Create scraper (no rate limiter for discovery)
+                scraper = scraper_class(db, session_id)
                 
-                # Run scraping session
-                result = scraper.run_scraping_session()
-                
-                # Store results
-                results[site_name] = {
-                    'status': 'success',
-                    'discovered': result.get('discovered', 0),
-                    'scraped': result.get('scraped', 0),
-                    'failed': result.get('failed', 0)
-                }
-                
-                logger.info(f"✅ {site_name} complete:")
-                logger.info(f"   - Discovered: {result.get('discovered', 0)} jobs")
-                logger.info(f"   - Scraped: {result.get('scraped', 0)} jobs")
-                logger.info(f"   - Failed: {result.get('failed', 0)} jobs")
+                try:
+                    # Discover job URLs (paginate through search results)
+                    job_urls = scraper.discover_job_urls()
+                    
+                    # Remove duplicates
+                    unique_urls = list(dict.fromkeys(job_urls))
+                    
+                    logger.info(f"✅ {site_name}: Discovered {len(unique_urls)} unique jobs")
+                    
+                    # Record discoveries in database
+                    for job_url in unique_urls:
+                        db.jobs.record_job_discovery(
+                            session_id, job_url, scraper.source_site
+                        )
+                        db.jobs.update_job_tracking(
+                            job_url, scraper.source_site, session_id
+                        )
+                        
+                        # Add to parallel queue
+                        all_discovered_jobs.append({
+                            'job_url': job_url,
+                            'source_site': scraper.source_site,
+                            'scraper_class_name': scraper_class.__name__
+                        })
+                    
+                    discovery_results[site_name] = {
+                        'status': 'success',
+                        'discovered': len(unique_urls)
+                    }
+                    
+                finally:
+                    # Cleanup scraper
+                    scraper.cleanup()
                 
             except Exception as e:
-                logger.error(f"❌ {site_name} failed: {e}", exc_info=True)
-                results[site_name] = {
+                logger.error(f"❌ {site_name} discovery failed: {e}", exc_info=True)
+                discovery_results[site_name] = {
                     'status': 'error',
-                    'error': str(e)
+                    'error': str(e),
+                    'discovered': 0
                 }
-                # Continue with other scrapers even if one fails
         
-        # Calculate totals
+        discovery_duration = (datetime.now() - discovery_start).total_seconds()
         total_discovered = sum(
-            r.get('discovered', 0) for r in results.values() if r.get('status') == 'success'
-        )
-        total_scraped = sum(
-            r.get('scraped', 0) for r in results.values() if r.get('status') == 'success'
-        )
-        total_failed = sum(
-            r.get('failed', 0) for r in results.values() if r.get('status') == 'success'
+            r.get('discovered', 0) for r in discovery_results.values()
         )
         
-        # Summary
+        logger.info("=" * 80)
+        logger.info(f"✅ Phase 1 Complete: Discovery")
+        logger.info(f"   Duration: {discovery_duration:.1f} seconds")
+        logger.info(f"   Total discovered: {total_discovered} jobs")
+        logger.info("=" * 80)
+        
+        if total_discovered == 0:
+            logger.warning("⚠️  No jobs discovered - skipping parallel phase")
+            return {
+                'phase_1_discovery': discovery_results,
+                'phase_2_parallel': {'status': 'skipped'},
+                'total_discovered': 0,
+                'total_scraped': 0
+            }
+        
+        # ====================================================================
+        # PHASE 2: PARALLEL DETAIL SCRAPING - ~13 minutes
+        # ====================================================================
+        logger.info("")
+        logger.info("=" * 80)
+        logger.info("🚀 PHASE 2: PARALLEL DETAIL SCRAPING")
+        logger.info("=" * 80)
+        
+        parallel_start = datetime.now()
+        
+        # Get jobs needing scraping
+        unscraped_jobs = db.jobs.get_jobs_needing_scraping(limit=10000)
+        
+        logger.info(f"📋 Jobs to scrape: {len(unscraped_jobs)}")
+        
+        if len(unscraped_jobs) == 0:
+            logger.info("✅ No jobs need scraping - all up to date")
+            parallel_results = {'status': 'skipped', 'reason': 'no_jobs_needed'}
+        else:
+            # Create worker pool
+            pool = WorkerPool(
+                database_conninfo=settings.database_url,
+                session_id=session_id,
+                num_workers=6,  # Tune based on Cloud Run resources
+                rate_limits={
+                    'irantalent': 20,  # requests per minute
+                    'jobinja': 15,     # slower due to Arvan CDN
+                    'jobvision': 20
+                },
+                scraper_classes={
+                    'IranTalentScraper': IranTalentScraper,
+                    'JobinjaScraper': JobinjaScraper,
+                    'JobVisionScraper': JobVisionScraper
+                }
+            )
+            
+            # Convert database results to job queue format
+            jobs_for_pool = [
+                {
+                    'job_url': job['job_url'],
+                    'source_site': job['source_site'],
+                    'scraper_class_name': {
+                        'irantalent': 'IranTalentScraper',
+                        'jobinja': 'JobinjaScraper',
+                        'jobvision': 'JobVisionScraper'
+                    }[job['source_site']]
+                }
+                for job in unscraped_jobs
+            ]
+            
+            # Add jobs to pool
+            pool.add_jobs(jobs_for_pool)
+            
+            # Run parallel scraping
+            parallel_results = pool.run()
+        
+        parallel_duration = (datetime.now() - parallel_start).total_seconds()
+        
+        # ====================================================================
+        # FINAL SUMMARY
+        # ====================================================================
         end_time = datetime.now()
-        duration = (end_time - start_time).total_seconds()
+        total_duration = (end_time - start_time).total_seconds()
         
+        logger.info("")
         logger.info("=" * 80)
-        logger.info("🎉 Scraper Job Complete")
-        logger.info(f"⏱️  Duration: {duration:.1f} seconds")
-        logger.info(f"📊 Total Discovered: {total_discovered}")
-        logger.info(f"✅ Total Scraped: {total_scraped}")
-        logger.info(f"❌ Total Failed: {total_failed}")
+        logger.info("🎉 SCRAPER JOB COMPLETE")
+        logger.info("=" * 80)
+        logger.info(f"⏱️  Total Duration: {total_duration:.1f} seconds")
+        logger.info(f"   - Phase 1 (Discovery): {discovery_duration:.1f}s")
+        logger.info(f"   - Phase 2 (Parallel): {parallel_duration:.1f}s")
+        logger.info("")
+        logger.info(f"📊 Results:")
+        logger.info(f"   - Total Discovered: {total_discovered}")
+        if parallel_results.get('status') != 'skipped':
+            logger.info(f"   - Total Scraped: {parallel_results.get('successful', 0)}")
+            logger.info(f"   - Failed: {parallel_results.get('failed', 0)}")
+            logger.info(f"   - Success Rate: {parallel_results.get('success_rate', 0):.1f}%")
         logger.info("=" * 80)
         
-        # Check if any scrapers succeeded
-        success_count = sum(1 for r in results.values() if r.get('status') == 'success')
-        
-        if success_count == 0:
-            logger.error("❌ All scrapers failed!")
-            sys.exit(1)
-        
-        return results
+        return {
+            'phase_1_discovery': discovery_results,
+            'phase_2_parallel': parallel_results,
+            'total_discovered': total_discovered,
+            'total_scraped': parallel_results.get('successful', 0),
+            'total_duration': total_duration
+        }
         
     except Exception as e:
         logger.error(f"💥 Scraper job failed critically: {e}", exc_info=True)
