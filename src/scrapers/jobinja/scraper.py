@@ -12,9 +12,14 @@ from selenium.webdriver.support import expected_conditions as EC
 
 class JobinjaScraper(BaseScraper):
 
-    def __init__(self, database, session_id: str):
+    def __init__(self, database, session_id: str, rate_limiter_registry=None):
         # Force Selenium for Arvan CDN bypass
-        super().__init__(database, session_id, method="selenium")
+        super().__init__(
+            database,
+            session_id,
+            method="selenium",
+            rate_limiter_registry=rate_limiter_registry
+        )
 
         self.base_url = "https://jobinja.ir"
         self.jobs_list_url = "https://jobinja.ir/jobs"

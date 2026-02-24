@@ -12,9 +12,14 @@ from selenium.webdriver.support import expected_conditions as EC
 
 class JobVisionScraper(BaseScraper):
 
-    def __init__(self, database, session_id: str):
+    def __init__(self, database, session_id: str, rate_limiter_registry=None):
         # Force Selenium for JobVision
-        super().__init__(database, session_id, method="selenium")
+        super().__init__(
+            database,
+            session_id,
+            method="selenium",
+            rate_limiter_registry=rate_limiter_registry
+        )
 
         # Site URLs
         self.base_url = "https://jobvision.ir/"
@@ -142,7 +147,7 @@ class JobVisionScraper(BaseScraper):
             soup = BeautifulSoup(html, 'html.parser')
             
             # Extract job title
-            title_elem = soup.select_one('h1.text-black.font-size-1.font-weight-bold.py-2.yn*title')
+            title_elem = soup.select_one('h1.text-black.font-size-1.font-weight-bold.py-2')
             title = title_elem.get_text().strip() if title_elem else None
             
             # Extract company name and URL
@@ -163,7 +168,7 @@ class JobVisionScraper(BaseScraper):
                 )
             
             # Extract location
-            location_elem = soup.select_one('span.text-muted.font-size-6.yn*category')
+            location_elem = soup.select_one('span.text-muted.font-size-6')
             location = location_elem.get_text().strip() if location_elem else None
             
             # Extract job description

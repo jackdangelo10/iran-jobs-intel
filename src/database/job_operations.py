@@ -187,29 +187,31 @@ class JobOperations:
     def save_job_posting(self, job_data: dict[str, Any] | JobPosting) -> int:
         """
         Save a scraped job posting to the database.
-        
+
+        Uses ON CONFLICT (source_site, external_id) to handle re-scrapes safely:
+        - Updates last_seen_date and restores is_active = TRUE
+        - Fills in missing description/scrape_id from the new scrape
+
         Args:
             job_data: Dict or JobPosting model with job data
-            
+
         Returns:
-            int: ID of the inserted job posting
+            int: ID of the inserted (or existing) job posting
         """
         # Convert dict to model if needed (validates data)
         if isinstance(job_data, dict):
-            # Set defaults for required date fields if not provided
             today = date.today()
             if 'first_seen_date' not in job_data:
                 job_data['first_seen_date'] = today
             if 'last_seen_date' not in job_data:
                 job_data['last_seen_date'] = today
-            
             job = JobPosting(**job_data)
         else:
             job = job_data
-        
+
         # Convert to database format (handles JSON serialization)
         db_data = job.to_db_dict()
-        
+
         query = """
             INSERT INTO iran_jobs.job_postings (
                 raw_scrape_id, external_id, source_site, source_url,
@@ -219,11 +221,22 @@ class JobOperations:
                 salary_min_original, salary_max_original, salary_currency_original,
                 skills_required_json, skills_preferred_json, technologies_mentioned_json,
                 posted_date, first_seen_date, last_seen_date, processing_status
-            ) 
+            )
             VALUES (
-                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 
+                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
                 %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
             )
+            ON CONFLICT (source_site, external_id) DO UPDATE SET
+                last_seen_date      = EXCLUDED.last_seen_date,
+                is_active           = TRUE,
+                raw_scrape_id       = COALESCE(EXCLUDED.raw_scrape_id,
+                                               iran_jobs.job_postings.raw_scrape_id),
+                description_persian = COALESCE(EXCLUDED.description_persian,
+                                               iran_jobs.job_postings.description_persian),
+                company_name_raw    = COALESCE(EXCLUDED.company_name_raw,
+                                               iran_jobs.job_postings.company_name_raw),
+                location_raw        = COALESCE(EXCLUDED.location_raw,
+                                               iran_jobs.job_postings.location_raw)
             RETURNING id
         """
 
@@ -254,6 +267,55 @@ class JobOperations:
             db_data.get('last_seen_date'),
             db_data.get('processing_status', 'pending')
         ))
+
+    def deactivate_stale_jobs(self, days_threshold: int = 14) -> int:
+        """
+        Mark job postings as inactive if they haven't been seen in recent scrapes.
+
+        A job is considered gone from the site if its last_seen_date is older
+        than `days_threshold` days and it is currently marked active.
+
+        Args:
+            days_threshold: Number of days without a sighting before deactivation.
+
+        Returns:
+            Number of jobs deactivated.
+        """
+        result = self.db_connection.execute_write_returning(
+            """
+            WITH updated AS (
+                UPDATE iran_jobs.job_postings
+                SET is_active = FALSE,
+                    deactivated_date = CURRENT_DATE
+                WHERE last_seen_date < CURRENT_DATE - %s
+                  AND is_active = TRUE
+                RETURNING id
+            )
+            SELECT COUNT(*)::int AS count FROM updated
+            """,
+            (days_threshold,),
+        )
+        return result[0]["count"] if result else 0
+
+    def get_active_company_job_counts(self) -> list[dict[str, Any]]:
+        """
+        Return per-company counts of active job postings plus 30-day velocity.
+
+        Returns:
+            List of dicts: company_id, active_count, count_30d
+        """
+        return self.db_connection.fetchall(
+            """
+            SELECT
+                company_id,
+                COUNT(*)::int                                                     AS active_count,
+                COUNT(*) FILTER (WHERE first_seen_date >= CURRENT_DATE - 30)::int AS count_30d
+            FROM iran_jobs.job_postings
+            WHERE company_id IS NOT NULL
+              AND is_active = TRUE
+            GROUP BY company_id
+            """
+        )
 
     def get_unprocessed_jobs(self, limit: int = 100) -> list[dict[str, Any]]:
         """

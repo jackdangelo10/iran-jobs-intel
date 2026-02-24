@@ -27,6 +27,17 @@ from src.scrapers.jobvision.scraper import JobVisionScraper
 from src.parallel import WorkerPool
 
 
+def _ensure_utf8_console() -> None:
+    """Avoid Windows cp1252 encoding crashes when logs contain Unicode."""
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+
+
+_ensure_utf8_console()
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -35,7 +46,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def run_scraper_job() -> dict[str, Any]:
+def run_scraper_job(dry_run: bool = False) -> dict[str, Any]:
     """
     Main scraping job orchestration with parallel execution.
     
@@ -60,8 +71,53 @@ def run_scraper_job() -> dict[str, Any]:
     logger.info("=" * 80)
     
     db = None
-    
+
+    # Static job config used by both dry-run and full-run paths.
+    scrapers_config = [
+        {
+            'name': 'IranTalent',
+            'class': IranTalentScraper,
+            'enabled': True
+        },
+        {
+            'name': 'Jobinja',
+            'class': JobinjaScraper,
+            'enabled': True
+        },
+        {
+            'name': 'JobVision',
+            'class': JobVisionScraper,
+            'enabled': True
+        }
+    ]
+    rate_limits = {
+        'irantalent': 20,
+        'jobinja': 15,
+        'jobvision': 20
+    }
+    scraper_classes = {
+        'IranTalentScraper': IranTalentScraper,
+        'JobinjaScraper': JobinjaScraper,
+        'JobVisionScraper': JobVisionScraper
+    }
+
     try:
+        if dry_run:
+            logger.info("🧪 Dry run enabled - skipping database and network calls")
+            return {
+                'status': 'dry_run',
+                'environment': settings.environment,
+                'session_id': session_id,
+                'validated': {
+                    'enabled_scrapers': [
+                        s['name'] for s in scrapers_config if s['enabled']
+                    ],
+                    'rate_limits': rate_limits,
+                    'worker_count': 6,
+                    'scraper_classes': list(scraper_classes.keys())
+                }
+            }
+
         # Initialize database connection
         logger.info("🔌 Connecting to database...")
         db = IranJobsDB()
@@ -76,25 +132,6 @@ def run_scraper_job() -> dict[str, Any]:
         logger.info("=" * 80)
         
         discovery_start = datetime.now()
-        
-        # Define scrapers for discovery
-        scrapers_config = [
-            {
-                'name': 'IranTalent',
-                'class': IranTalentScraper,
-                'enabled': True
-            },
-            {
-                'name': 'Jobinja',
-                'class': JobinjaScraper,
-                'enabled': True
-            },
-            {
-                'name': 'JobVision',
-                'class': JobVisionScraper,
-                'enabled': True
-            }
-        ]
         
         # Track discovered jobs for parallel phase
         all_discovered_jobs = []
@@ -203,16 +240,8 @@ def run_scraper_job() -> dict[str, Any]:
                 database_conninfo=settings.database_url,
                 session_id=session_id,
                 num_workers=6,  # Tune based on Cloud Run resources
-                rate_limits={
-                    'irantalent': 20,  # requests per minute
-                    'jobinja': 15,     # slower due to Arvan CDN
-                    'jobvision': 20
-                },
-                scraper_classes={
-                    'IranTalentScraper': IranTalentScraper,
-                    'JobinjaScraper': JobinjaScraper,
-                    'JobVisionScraper': JobVisionScraper
-                }
+                rate_limits=rate_limits,
+                scraper_classes=scraper_classes
             )
             
             # Convert database results to job queue format

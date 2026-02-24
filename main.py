@@ -17,6 +17,18 @@ Cloud Run Job Configuration:
 import sys
 import logging
 
+
+def _ensure_utf8_console() -> None:
+    """Avoid Windows cp1252 encoding crashes when logs contain Unicode."""
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+
+
+_ensure_utf8_console()
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -44,7 +56,7 @@ def main():
     if len(sys.argv) < 2:
         logger.error("❌ No job type specified!")
         logger.info("")
-        logger.info("Usage: python main.py [scraper|processor|analytics]")
+        logger.info("Usage: python main.py [scraper|processor|analytics] [--dry-run]")
         logger.info("")
         logger.info("Available job types:")
         logger.info("  scraper     - Scrape Iranian job sites (IranTalent, Jobinja, JobVision)")
@@ -54,6 +66,11 @@ def main():
         sys.exit(1)
     
     job_type = sys.argv[1].lower()
+    dry_run = "--dry-run" in sys.argv[2:]
+    if dry_run:
+        # Allow downstream modules to opt into dry-run behavior.
+        import os
+        os.environ["IRAN_JOBS_DRY_RUN"] = "1"
     logger.info(f"🚀 Job Type: {job_type.upper()}")
     logger.info("=" * 80)
     logger.info("")
@@ -63,7 +80,7 @@ def main():
         if job_type == "scraper":
             logger.info("📡 Starting web scraping job...")
             from src.runners.scraper_job import run_scraper_job
-            result = run_scraper_job()
+            result = run_scraper_job(dry_run=dry_run)
             
             logger.info("")
             logger.info("=" * 80)
@@ -75,7 +92,7 @@ def main():
         elif job_type == "processor":
             logger.info("🔄 Starting data processing job...")
             from src.runners.processor_job import run_processor_job
-            result = run_processor_job()
+            result = run_processor_job(dry_run=dry_run)
             
             logger.info("")
             logger.info("=" * 80)

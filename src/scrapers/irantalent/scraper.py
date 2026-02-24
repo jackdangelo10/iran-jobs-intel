@@ -12,9 +12,14 @@ from selenium.webdriver.support import expected_conditions as EC
 
 class IranTalentScraper(BaseScraper):
 
-    def __init__(self, database, session_id: str):
+    def __init__(self, database, session_id: str, rate_limiter_registry=None):
         # Force Selenium for IranTalent since it's an Angular SPA
-        super().__init__(database, session_id, method="selenium")
+        super().__init__(
+            database,
+            session_id,
+            method="selenium",
+            rate_limiter_registry=rate_limiter_registry
+        )
 
         # Site URLs
         self.base_url = "https://irantalent.com"

@@ -5,6 +5,7 @@ Loads from environment variables (local) or GCP Secret Manager (cloud).
 """
 from __future__ import annotations
 import os
+import sys
 from dataclasses import dataclass
 
 @dataclass
@@ -48,6 +49,13 @@ def load_settings() -> Settings:
         ValueError: If required settings are missing
     """
 
+    # Avoid Windows cp1252 encoding crashes when printing Unicode.
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+
     # Detect environment
     is_cloud_run = os.getenv('K_SERVICE') is not None # Cloud Run sets this variable
     environment = 'production' if is_cloud_run else 'development'
@@ -90,6 +98,10 @@ def _load_database_url(is_cloud_run: bool, gcp_project_id: str | None) -> str:
     Raises:
         ValueError: If database URL cannot be loaded
     """
+    if os.getenv("IRAN_JOBS_DRY_RUN") == "1":
+        print("🧪 Dry run mode: skipping database URL resolution")
+        return "postgresql://dry-run/dry-run"
+
     if is_cloud_run:
         # Cloud Run: Must use Secret Manager
         print("📡 Loading DATABASE_URL from GCP Secret Manager...")

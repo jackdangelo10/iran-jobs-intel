@@ -1,0 +1,9 @@
+Concept:
+Scrape major Iranian job boards (IranTalent, JobVision, Jobinja) to build a dataset of job postings, then analyze and visualize them to track economic activity, sectoral growth, and labor demand inside Iran.
+
+Method:
+	•	Scraping: Collect job titles, employers, skills, locations, salaries, and timestamps.
+	•	Normalization: Translate Persian → English, map jobs to standard occupational/industry 
+
+
+Produce a dashbaord that updates daily with analysis of activity

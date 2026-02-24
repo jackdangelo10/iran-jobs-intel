@@ -7,8 +7,6 @@ from __future__ import annotations
 import threading
 import time
 from datetime import datetime, timedelta
-from typing import Literal
-
 class RateLimiter:
     """
     Thread-safe rate limiter that coordinates requests across multiple workers.
@@ -48,32 +46,30 @@ class RateLimiter:
         Returns:
             float: Seconds waited (0 if no wait needed)
         """
-        with self.lock:
-            now = datetime.now()
-            cutoff = now - timedelta(minutes=1)
-            
-            # Remove requests older than 1 minute (outside sliding window)
-            self.request_times = [t for t in self.request_times if t > cutoff]
-            
-            # Check if we need to wait
-            if len(self.request_times) >= self.requests_per_minute:
-                # We're at the limit - calculate wait time
+        total_wait = 0.0
+
+        while True:
+            with self.lock:
+                now = datetime.now()
+                cutoff = now - timedelta(minutes=1)
+
+                # Remove requests older than 1 minute (outside sliding window)
+                self.request_times = [t for t in self.request_times if t > cutoff]
+
+                # If we still have capacity, record request and proceed
+                if len(self.request_times) < self.requests_per_minute:
+                    self.request_times.append(now)
+                    return total_wait
+
+                # Otherwise compute how long until oldest request expires
                 oldest_request = self.request_times[0]
                 wait_until = oldest_request + timedelta(minutes=1)
-                wait_seconds = (wait_until - now).total_seconds()
-                
-                if wait_seconds > 0:
-                    # Release lock before sleeping so other threads can check
-                    self.lock.release()
-                    time.sleep(wait_seconds)
-                    self.lock.acquire()
-                    
-                    # Recheck after sleeping (another thread might have taken the slot)
-                    return wait_seconds + self.wait_if_needed()
-            
-            # Record this request
-            self.request_times.append(datetime.now())
-            return 0.0
+                wait_seconds = max(0.0, (wait_until - now).total_seconds())
+
+            # Sleep outside lock so other workers can make progress
+            if wait_seconds > 0:
+                time.sleep(wait_seconds)
+                total_wait += wait_seconds
         
 
     def get_stats(self) -> dict[str, int | float]:

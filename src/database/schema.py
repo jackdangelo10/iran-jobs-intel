@@ -65,7 +65,7 @@ SCHEMA_SQL = {
             location_type TEXT CHECK (location_type IN ('country', 'province', 'city', 'district', 'industrial_zone', 'free_trade_zone')),
             
             -- Geographic coordinates
-            NUMERIC,
+            latitude NUMERIC,
             longitude NUMERIC,
             
             -- Economic classification

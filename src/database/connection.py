@@ -181,17 +181,17 @@ class DatabaseConnection:
             self.return_connection(conn)
 
     def fetchall(
-        self, 
-        sql: str, 
+        self,
+        sql: str,
         parameters: tuple[Any, ...] | dict[str, Any] | None = None
     ) -> list[dict[str, Any]]:
         """
         Fetch all rows.
-        
+
         Args:
             sql: SELECT query
             parameters: Query parameters
-            
+
         Returns:
             List of dicts representing rows
         """
@@ -202,5 +202,38 @@ class DatabaseConnection:
                 results = cursor.fetchall()
                 # Convert DictRows to regular dicts for type compatibility
                 return [dict(row) for row in results]
+        finally:
+            self.return_connection(conn)
+
+    def execute_write_returning(
+        self,
+        sql: str,
+        parameters: tuple[Any, ...] | dict[str, Any] | None = None
+    ) -> list[dict[str, Any]]:
+        """
+        Execute a write statement (INSERT/UPDATE/DELETE) that returns rows,
+        including CTE patterns like:
+            WITH updated AS (UPDATE ... RETURNING id)
+            SELECT COUNT(*) FROM updated
+
+        Commits on success, rolls back on error.
+
+        Args:
+            sql: SQL with a RETURNING clause or CTE returning rows
+            parameters: Query parameters
+
+        Returns:
+            List of dicts from the result set
+        """
+        conn = self.get_connection()
+        try:
+            with conn.cursor() as cursor:
+                cursor.execute(self._to_literal(sql), parameters)
+                conn.commit()
+                results = cursor.fetchall()
+                return [dict(row) for row in results]
+        except Exception as e:
+            conn.rollback()
+            raise e
         finally:
             self.return_connection(conn)
