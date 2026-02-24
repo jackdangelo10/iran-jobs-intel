@@ -16,9 +16,9 @@ export async function GET(request: NextRequest) {
       SELECT
         s.skill_name_english AS skill,
         COUNT(*)::int AS count
-      FROM iran_jobs.job_skills js
-      JOIN iran_jobs.skills s ON s.id = js.skill_id
-      JOIN iran_jobs.job_postings jp ON jp.id = js.job_posting_id
+      FROM job_skills js
+      JOIN skills s ON s.id = js.skill_id
+      JOIN job_postings jp ON jp.id = js.job_posting_id
       WHERE (${site} = 'all' OR jp.source_site = ${site})
         AND jp.first_seen_date >= CURRENT_DATE - ${days}
       GROUP BY s.skill_name_english

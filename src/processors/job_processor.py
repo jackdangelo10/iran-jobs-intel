@@ -438,7 +438,7 @@ class JobProcessor:
                    employment_type, experience_level,
                    salary_min_original,
                    skills_required_json
-            FROM iran_jobs.job_postings
+            FROM job_postings
             WHERE processing_status = 'pending'
             ORDER BY id ASC
             LIMIT %s
@@ -453,13 +453,13 @@ class JobProcessor:
 
         text_hash = sha256_hash(f"fa|en|{clean}")
         cached = self.conn.fetchone(
-            "SELECT translated_text FROM iran_jobs.translation_cache WHERE source_text_hash = %s",
+            "SELECT translated_text FROM translation_cache WHERE source_text_hash = %s",
             (text_hash,),
         )
         if cached and cached.get("translated_text"):
             self.conn.execute_with_transaction(
                 """
-                UPDATE iran_jobs.translation_cache
+                UPDATE translation_cache
                 SET last_used_at = NOW(), usage_count = usage_count + 1
                 WHERE source_text_hash = %s
                 """,
@@ -477,17 +477,17 @@ class JobProcessor:
 
         self.conn.execute_with_transaction(
             """
-            INSERT INTO iran_jobs.translation_cache (
+            INSERT INTO translation_cache (
                 source_text_hash, source_text, source_language, target_language,
                 translated_text, translation_service, translation_confidence,
                 created_at, last_used_at, usage_count, is_verified, needs_review
             )
             VALUES (%s, %s, 'fa', 'en', %s, 'google', %s, NOW(), NOW(), 1, FALSE, FALSE)
             ON CONFLICT (source_text_hash) DO UPDATE
-            SET translated_text = COALESCE(iran_jobs.translation_cache.translated_text,
+            SET translated_text = COALESCE(translation_cache.translated_text,
                                             EXCLUDED.translated_text),
                 last_used_at  = NOW(),
-                usage_count   = iran_jobs.translation_cache.usage_count + 1
+                usage_count   = translation_cache.usage_count + 1
             """,
             (text_hash, clean, translated, 0.8 if translated else None),
         )
@@ -499,14 +499,14 @@ class JobProcessor:
             return None
 
         existing = self.conn.fetchone(
-            "SELECT id FROM iran_jobs.companies WHERE canonical_name = %s",
+            "SELECT id FROM companies WHERE canonical_name = %s",
             (canonical,),
         )
         if existing:
             company_id = int(existing["id"])
             self.conn.execute_with_transaction(
                 """
-                UPDATE iran_jobs.companies
+                UPDATE companies
                 SET last_activity_date = CURRENT_DATE,
                     total_job_postings = total_job_postings + 1,
                     active_job_postings = active_job_postings + 1,
@@ -520,7 +520,7 @@ class JobProcessor:
         try:
             return self.conn.execute_insert_with_id(
                 """
-                INSERT INTO iran_jobs.companies (
+                INSERT INTO companies (
                     display_name_persian, canonical_name,
                     first_seen_date, last_activity_date, is_active,
                     total_job_postings, active_job_postings
@@ -532,7 +532,7 @@ class JobProcessor:
             )
         except Exception:
             fallback = self.conn.fetchone(
-                "SELECT id FROM iran_jobs.companies WHERE canonical_name = %s",
+                "SELECT id FROM companies WHERE canonical_name = %s",
                 (canonical,),
             )
             return int(fallback["id"]) if fallback else None
@@ -543,7 +543,7 @@ class JobProcessor:
             return None
 
         existing = self.conn.fetchone(
-            "SELECT id FROM iran_jobs.locations WHERE location_normalized = %s",
+            "SELECT id FROM locations WHERE location_normalized = %s",
             (norm,),
         )
         if existing:
@@ -552,7 +552,7 @@ class JobProcessor:
         try:
             return self.conn.execute_insert_with_id(
                 """
-                INSERT INTO iran_jobs.locations (
+                INSERT INTO locations (
                     city_persian, location_normalized, location_type
                 )
                 VALUES (%s, %s, 'city')
@@ -562,7 +562,7 @@ class JobProcessor:
             )
         except Exception:
             fallback = self.conn.fetchone(
-                "SELECT id FROM iran_jobs.locations WHERE location_normalized = %s",
+                "SELECT id FROM locations WHERE location_normalized = %s",
                 (norm,),
             )
             return int(fallback["id"]) if fallback else None
@@ -571,14 +571,14 @@ class JobProcessor:
         skill_ids: list[int] = []
         for skill_name in skill_names:
             existing = self.conn.fetchone(
-                "SELECT id FROM iran_jobs.skills WHERE skill_name_english = %s",
+                "SELECT id FROM skills WHERE skill_name_english = %s",
                 (skill_name,),
             )
             if existing:
                 skill_id = int(existing["id"])
                 self.conn.execute_with_transaction(
                     """
-                    UPDATE iran_jobs.skills
+                    UPDATE skills
                     SET last_seen_date = CURRENT_DATE, is_active = TRUE, updated_at = NOW()
                     WHERE id = %s
                     """,
@@ -590,7 +590,7 @@ class JobProcessor:
             try:
                 skill_id = self.conn.execute_insert_with_id(
                     """
-                    INSERT INTO iran_jobs.skills (
+                    INSERT INTO skills (
                         skill_name_english, skill_category, first_seen_date, last_seen_date, is_active
                     )
                     VALUES (%s, 'technical', CURRENT_DATE, CURRENT_DATE, TRUE)
@@ -601,7 +601,7 @@ class JobProcessor:
                 skill_ids.append(skill_id)
             except Exception:
                 fallback = self.conn.fetchone(
-                    "SELECT id FROM iran_jobs.skills WHERE skill_name_english = %s",
+                    "SELECT id FROM skills WHERE skill_name_english = %s",
                     (skill_name,),
                 )
                 if fallback:
@@ -612,13 +612,13 @@ class JobProcessor:
         for skill_id in skill_ids:
             self.conn.execute_with_transaction(
                 """
-                INSERT INTO iran_jobs.job_skills (
+                INSERT INTO job_skills (
                     job_posting_id, skill_id, requirement_type, proficiency_level,
                     confidence_score, extraction_method, verified, needs_review, created_at
                 )
                 VALUES (%s, %s, 'mentioned', 'unknown', 0.7, 'keyword_match', FALSE, FALSE, NOW())
                 ON CONFLICT (job_posting_id, skill_id) DO UPDATE
-                SET confidence_score = GREATEST(iran_jobs.job_skills.confidence_score,
+                SET confidence_score = GREATEST(job_skills.confidence_score,
                                                  EXCLUDED.confidence_score),
                     needs_review = FALSE
                 """,
@@ -642,7 +642,7 @@ class JobProcessor:
     ) -> None:
         self.conn.execute_with_transaction(
             """
-            UPDATE iran_jobs.job_postings
+            UPDATE job_postings
             SET title_english              = %s,
                 description_english        = %s,
                 title_normalized           = %s,
@@ -680,7 +680,7 @@ class JobProcessor:
     def _mark_job_failed(self, job_id: int, error_message: str) -> None:
         self.conn.execute_with_transaction(
             """
-            UPDATE iran_jobs.job_postings
+            UPDATE job_postings
             SET processing_status = 'failed',
                 manual_review_needed = TRUE
             WHERE id = %s
@@ -714,7 +714,7 @@ class JobProcessor:
     ) -> None:
         self.conn.execute_with_transaction(
             """
-            INSERT INTO iran_jobs.processing_logs (
+            INSERT INTO processing_logs (
                 process_type, process_id, entity_type, entity_id, status, message,
                 details_json, records_processed, records_failed, error_details, timestamp
             )

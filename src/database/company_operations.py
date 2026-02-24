@@ -49,7 +49,7 @@ class CompanyOperations:
             
             # Insert new company tracking record
             query = """
-                INSERT INTO iran_jobs.company_tracking (
+                INSERT INTO company_tracking (
                     company_url, source_site, first_seen_session, 
                     last_seen_session, first_seen_date, last_seen_date
                 )
@@ -64,7 +64,7 @@ class CompanyOperations:
         else:
             # Update last seen information
             query = """
-                UPDATE iran_jobs.company_tracking 
+                UPDATE company_tracking 
                 SET last_seen_session = %s, last_seen_date = CURRENT_DATE
                 WHERE company_url = %s
             """
@@ -85,7 +85,7 @@ class CompanyOperations:
         """
         query = """
             SELECT id, company_url, source_site, first_seen_date, last_seen_date
-            FROM iran_jobs.company_tracking
+            FROM company_tracking
             WHERE company_url = %s
         """
         
@@ -103,7 +103,7 @@ class CompanyOperations:
         """
         query = """
             SELECT company_url, source_site, first_seen_date, profile_scrape_count
-            FROM iran_jobs.company_tracking
+            FROM company_tracking
             WHERE profile_scraped = FALSE
             ORDER BY first_seen_date ASC
             LIMIT %s
@@ -121,7 +121,7 @@ class CompanyOperations:
         """
         if success:
             query = """
-                UPDATE iran_jobs.company_tracking 
+                UPDATE company_tracking 
                 SET profile_scraped = TRUE, 
                     last_profile_scrape_date = CURRENT_DATE,
                     profile_scrape_count = profile_scrape_count + 1
@@ -130,7 +130,7 @@ class CompanyOperations:
         else:
             # Failed scrape - increment count but don't mark as completed
             query = """
-                UPDATE iran_jobs.company_tracking 
+                UPDATE company_tracking 
                 SET profile_scrape_count = profile_scrape_count + 1,
                     last_profile_scrape_date = CURRENT_DATE
                 WHERE company_url = %s

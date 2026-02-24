@@ -14,18 +14,18 @@
 -- Every API route (/api/stats, /api/jobs-over-time, /api/top-companies, etc.)
 -- filters with:  WHERE first_seen_date >= CURRENT_DATE - $days
 CREATE INDEX IF NOT EXISTS idx_first_seen_date
-    ON iran_jobs.job_postings (first_seen_date);
+    ON job_postings (first_seen_date);
 
 -- Most routes also filter on source_site; the compound index lets Postgres
 -- satisfy both predicates with a single index scan.
 CREATE INDEX IF NOT EXISTS idx_source_site_first_seen
-    ON iran_jobs.job_postings (source_site, first_seen_date);
+    ON job_postings (source_site, first_seen_date);
 
 -- ── Analytics engine — job deactivation ──────────────────────────────────────
 -- _deactivate_stale_jobs() runs:
 --   WHERE last_seen_date < CURRENT_DATE - 14 AND is_active = TRUE
 CREATE INDEX IF NOT EXISTS idx_last_seen_date
-    ON iran_jobs.job_postings (last_seen_date)
+    ON job_postings (last_seen_date)
     WHERE is_active = TRUE;
 
 -- ── Analytics engine — company metric refresh ────────────────────────────────
@@ -33,14 +33,14 @@ CREATE INDEX IF NOT EXISTS idx_last_seen_date
 --   WHERE company_id IS NOT NULL AND is_active = TRUE
 -- and the 30-day velocity sub-count also references first_seen_date.
 CREATE INDEX IF NOT EXISTS idx_company_active
-    ON iran_jobs.job_postings (company_id, is_active, first_seen_date)
+    ON job_postings (company_id, is_active, first_seen_date)
     WHERE company_id IS NOT NULL;
 
 -- ── Analytics engine — summary stats ────────────────────────────────────────
 -- _compute_summary_stats() counts deactivated_date = CURRENT_DATE.
 -- A partial index keeps it small.
 CREATE INDEX IF NOT EXISTS idx_deactivated_date
-    ON iran_jobs.job_postings (deactivated_date)
+    ON job_postings (deactivated_date)
     WHERE deactivated_date IS NOT NULL;
 
 -- ── Processor — pending-job fetch ────────────────────────────────────────────
@@ -49,4 +49,4 @@ CREATE INDEX IF NOT EXISTS idx_deactivated_date
 -- processing_status is already indexed by schema.py, but adding source_site
 -- helps the scraper-job discovery uniqueness check too.
 CREATE INDEX IF NOT EXISTS idx_source_site
-    ON iran_jobs.job_postings (source_site);
+    ON job_postings (source_site);

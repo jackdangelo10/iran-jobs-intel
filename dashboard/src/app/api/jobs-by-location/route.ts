@@ -16,7 +16,7 @@ export async function GET(request: NextRequest) {
       SELECT
         COALESCE(location_raw, 'Unknown') AS location,
         COUNT(*)::int AS count
-      FROM iran_jobs.job_postings
+      FROM job_postings
       WHERE (${site} = 'all' OR source_site = ${site})
         AND first_seen_date >= CURRENT_DATE - ${days}
         AND location_raw IS NOT NULL

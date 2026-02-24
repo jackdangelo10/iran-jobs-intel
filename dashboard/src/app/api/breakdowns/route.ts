@@ -17,7 +17,7 @@ export async function GET(request: NextRequest) {
         SELECT
           COALESCE(employment_type, 'unknown') AS label,
           COUNT(*)::int AS count
-        FROM iran_jobs.job_postings
+        FROM job_postings
         WHERE (${site} = 'all' OR source_site = ${site})
           AND first_seen_date >= CURRENT_DATE - ${days}
         GROUP BY employment_type
@@ -27,7 +27,7 @@ export async function GET(request: NextRequest) {
         SELECT
           COALESCE(experience_level, 'unknown') AS label,
           COUNT(*)::int AS count
-        FROM iran_jobs.job_postings
+        FROM job_postings
         WHERE (${site} = 'all' OR source_site = ${site})
           AND first_seen_date >= CURRENT_DATE - ${days}
         GROUP BY experience_level
@@ -37,7 +37,7 @@ export async function GET(request: NextRequest) {
         SELECT
           source_site AS label,
           COUNT(*)::int AS count
-        FROM iran_jobs.job_postings
+        FROM job_postings
         WHERE (${site} = 'all' OR source_site = ${site})
           AND first_seen_date >= CURRENT_DATE - ${days}
         GROUP BY source_site

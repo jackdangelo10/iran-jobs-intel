@@ -18,7 +18,7 @@ export async function GET(request: NextRequest) {
         COUNT(*) FILTER (WHERE is_active = true)::int AS active_jobs,
         COUNT(DISTINCT company_id) FILTER (WHERE company_id IS NOT NULL)::int AS companies,
         COUNT(*) FILTER (WHERE first_seen_date >= CURRENT_DATE - 7)::int AS new_this_week
-      FROM iran_jobs.job_postings
+      FROM job_postings
       WHERE (${site} = 'all' OR source_site = ${site})
         AND first_seen_date >= CURRENT_DATE - ${days}
     `;

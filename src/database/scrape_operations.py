@@ -78,7 +78,7 @@ class ScrapeOperations:
         """
         query = """
             SELECT id, raw_html 
-            FROM iran_jobs.raw_scrapes 
+            FROM raw_scrapes 
             WHERE content_hash = %s AND is_duplicate = FALSE
         """
         
@@ -95,7 +95,7 @@ class ScrapeOperations:
             int: ID of inserted record
         """
         query = """
-            INSERT INTO iran_jobs.raw_scrapes (
+            INSERT INTO raw_scrapes (
                 source_site, source_url, page_type, scrape_session_id, 
                 raw_html, html_size, response_status, content_hash, is_duplicate
             )

@@ -1,19 +1,12 @@
 # src/database/schema.py
 """
 PostgreSQL database schema for Iran Jobs Intelligence Platform.
-All tables are created in the 'iran_jobs' schema.
-"""
-
-# Schema creation - must be first
-SCHEMA_CREATION = """
-CREATE SCHEMA IF NOT EXISTS iran_jobs;
+All tables are created in the public schema.
 """
 
 SCHEMA_SQL = {
-    'schema_setup': SCHEMA_CREATION,
-    
     'raw_scrapes': """
-        CREATE TABLE IF NOT EXISTS iran_jobs.raw_scrapes (
+        CREATE TABLE IF NOT EXISTS raw_scrapes (
             id BIGSERIAL PRIMARY KEY,
             
             -- Source identification  
@@ -41,14 +34,14 @@ SCHEMA_SQL = {
     """,
     
     'raw_scrapes_indexes': """
-        CREATE INDEX IF NOT EXISTS idx_scrape_session ON iran_jobs.raw_scrapes(scrape_session_id);
-        CREATE INDEX IF NOT EXISTS idx_processing_status ON iran_jobs.raw_scrapes(processing_status);
-        CREATE INDEX IF NOT EXISTS idx_scraped_date ON iran_jobs.raw_scrapes(scraped_at);
-        CREATE INDEX IF NOT EXISTS idx_content_hash ON iran_jobs.raw_scrapes(content_hash);
+        CREATE INDEX IF NOT EXISTS idx_scrape_session ON raw_scrapes(scrape_session_id);
+        CREATE INDEX IF NOT EXISTS idx_processing_status ON raw_scrapes(processing_status);
+        CREATE INDEX IF NOT EXISTS idx_scraped_date ON raw_scrapes(scraped_at);
+        CREATE INDEX IF NOT EXISTS idx_content_hash ON raw_scrapes(content_hash);
     """,
     
     'locations': """
-        CREATE TABLE IF NOT EXISTS iran_jobs.locations (
+        CREATE TABLE IF NOT EXISTS locations (
             id SERIAL PRIMARY KEY,
             
             -- Iranian administrative hierarchy
@@ -86,14 +79,14 @@ SCHEMA_SQL = {
     """,
     
     'locations_indexes': """
-        CREATE INDEX IF NOT EXISTS idx_normalized ON iran_jobs.locations(location_normalized);
-        CREATE INDEX IF NOT EXISTS idx_province ON iran_jobs.locations(province_english);
-        CREATE INDEX IF NOT EXISTS idx_city ON iran_jobs.locations(city_english);
-        CREATE INDEX IF NOT EXISTS idx_coordinates ON iran_jobs.locations(latitude, longitude);
+        CREATE INDEX IF NOT EXISTS idx_normalized ON locations(location_normalized);
+        CREATE INDEX IF NOT EXISTS idx_province ON locations(province_english);
+        CREATE INDEX IF NOT EXISTS idx_city ON locations(city_english);
+        CREATE INDEX IF NOT EXISTS idx_coordinates ON locations(latitude, longitude);
     """,
     
     'skills': """
-        CREATE TABLE IF NOT EXISTS iran_jobs.skills (
+        CREATE TABLE IF NOT EXISTS skills (
             id SERIAL PRIMARY KEY,
             
             -- Skill identification
@@ -137,19 +130,19 @@ SCHEMA_SQL = {
             created_at TIMESTAMP DEFAULT NOW(),
             updated_at TIMESTAMP DEFAULT NOW(),
             
-            FOREIGN KEY (parent_skill_id) REFERENCES iran_jobs.skills(id)
+            FOREIGN KEY (parent_skill_id) REFERENCES skills(id)
         );
     """,
     
     'skills_indexes': """
-        CREATE INDEX IF NOT EXISTS idx_skill_name ON iran_jobs.skills(skill_name_english);
-        CREATE INDEX IF NOT EXISTS idx_category ON iran_jobs.skills(skill_category, skill_subcategory);
-        CREATE INDEX IF NOT EXISTS idx_dual_use ON iran_jobs.skills(is_dual_use, strategic_importance);
-        CREATE INDEX IF NOT EXISTS idx_active ON iran_jobs.skills(is_active);
+        CREATE INDEX IF NOT EXISTS idx_skill_name ON skills(skill_name_english);
+        CREATE INDEX IF NOT EXISTS idx_category ON skills(skill_category, skill_subcategory);
+        CREATE INDEX IF NOT EXISTS idx_dual_use ON skills(is_dual_use, strategic_importance);
+        CREATE INDEX IF NOT EXISTS idx_active ON skills(is_active);
     """,
     
     'companies': """
-        CREATE TABLE IF NOT EXISTS iran_jobs.companies (
+        CREATE TABLE IF NOT EXISTS companies (
             id SERIAL PRIMARY KEY,
             
             -- Basic company information
@@ -214,22 +207,22 @@ SCHEMA_SQL = {
             created_at TIMESTAMP DEFAULT NOW(),
             updated_at TIMESTAMP DEFAULT NOW(),
             
-            FOREIGN KEY (parent_company_id) REFERENCES iran_jobs.companies(id),
-            FOREIGN KEY (headquarters_location_id) REFERENCES iran_jobs.locations(id)
+            FOREIGN KEY (parent_company_id) REFERENCES companies(id),
+            FOREIGN KEY (headquarters_location_id) REFERENCES locations(id)
         );
     """,
     
     'companies_indexes': """
-        CREATE INDEX IF NOT EXISTS idx_canonical_name ON iran_jobs.companies(canonical_name);
-        CREATE INDEX IF NOT EXISTS idx_company_type ON iran_jobs.companies(company_type);
-        CREATE INDEX IF NOT EXISTS idx_risk_level ON iran_jobs.companies(risk_level);
-        CREATE INDEX IF NOT EXISTS idx_sanctioned ON iran_jobs.companies(is_sanctioned);
-        CREATE INDEX IF NOT EXISTS idx_active ON iran_jobs.companies(is_active);
-        CREATE INDEX IF NOT EXISTS idx_hiring_activity ON iran_jobs.companies(active_job_postings);
+        CREATE INDEX IF NOT EXISTS idx_canonical_name ON companies(canonical_name);
+        CREATE INDEX IF NOT EXISTS idx_company_type ON companies(company_type);
+        CREATE INDEX IF NOT EXISTS idx_risk_level ON companies(risk_level);
+        CREATE INDEX IF NOT EXISTS idx_sanctioned ON companies(is_sanctioned);
+        CREATE INDEX IF NOT EXISTS idx_active ON companies(is_active);
+        CREATE INDEX IF NOT EXISTS idx_hiring_activity ON companies(active_job_postings);
     """,
     
     'job_postings': """
-        CREATE TABLE IF NOT EXISTS iran_jobs.job_postings (
+        CREATE TABLE IF NOT EXISTS job_postings (
             id BIGSERIAL PRIMARY KEY,
             
             -- Source tracking
@@ -305,26 +298,26 @@ SCHEMA_SQL = {
             -- Processing status
             processing_status TEXT CHECK (processing_status IN ('pending', 'processed', 'failed', 'skipped')) DEFAULT 'pending',
             
-            FOREIGN KEY (raw_scrape_id) REFERENCES iran_jobs.raw_scrapes(id),
-            FOREIGN KEY (company_id) REFERENCES iran_jobs.companies(id),
-            FOREIGN KEY (location_id) REFERENCES iran_jobs.locations(id),
+            FOREIGN KEY (raw_scrape_id) REFERENCES raw_scrapes(id),
+            FOREIGN KEY (company_id) REFERENCES companies(id),
+            FOREIGN KEY (location_id) REFERENCES locations(id),
             
             UNIQUE(source_site, external_id)
         );
     """,
     
     'job_postings_indexes': """
-        CREATE INDEX IF NOT EXISTS idx_company_name ON iran_jobs.job_postings(company_name_raw);
-        CREATE INDEX IF NOT EXISTS idx_posted_date ON iran_jobs.job_postings(posted_date);
-        CREATE INDEX IF NOT EXISTS idx_active ON iran_jobs.job_postings(is_active);
-        CREATE INDEX IF NOT EXISTS idx_processing_status ON iran_jobs.job_postings(processing_status);
-        CREATE INDEX IF NOT EXISTS idx_employment_type ON iran_jobs.job_postings(employment_type);
-        CREATE INDEX IF NOT EXISTS idx_experience_level ON iran_jobs.job_postings(experience_level);
-        CREATE INDEX IF NOT EXISTS idx_gender_requirement ON iran_jobs.job_postings(gender_requirement);  
+        CREATE INDEX IF NOT EXISTS idx_company_name ON job_postings(company_name_raw);
+        CREATE INDEX IF NOT EXISTS idx_posted_date ON job_postings(posted_date);
+        CREATE INDEX IF NOT EXISTS idx_active ON job_postings(is_active);
+        CREATE INDEX IF NOT EXISTS idx_processing_status ON job_postings(processing_status);
+        CREATE INDEX IF NOT EXISTS idx_employment_type ON job_postings(employment_type);
+        CREATE INDEX IF NOT EXISTS idx_experience_level ON job_postings(experience_level);
+        CREATE INDEX IF NOT EXISTS idx_gender_requirement ON job_postings(gender_requirement);  
     """,
     
     'job_discoveries': """
-        CREATE TABLE IF NOT EXISTS iran_jobs.job_discoveries (
+        CREATE TABLE IF NOT EXISTS job_discoveries (
             id BIGSERIAL PRIMARY KEY,
             scrape_session_id TEXT NOT NULL,
             
@@ -344,12 +337,12 @@ SCHEMA_SQL = {
     """,
     
     'job_discoveries_indexes': """
-        CREATE INDEX IF NOT EXISTS idx_session ON iran_jobs.job_discoveries(scrape_session_id);
-        CREATE INDEX IF NOT EXISTS idx_job_url ON iran_jobs.job_discoveries(job_url);
+        CREATE INDEX IF NOT EXISTS idx_session ON job_discoveries(scrape_session_id);
+        CREATE INDEX IF NOT EXISTS idx_job_url ON job_discoveries(job_url);
     """,
     
     'job_tracking': """
-        CREATE TABLE IF NOT EXISTS iran_jobs.job_tracking (
+        CREATE TABLE IF NOT EXISTS job_tracking (
             id SERIAL PRIMARY KEY,
             
             job_url TEXT UNIQUE NOT NULL,
@@ -374,13 +367,13 @@ SCHEMA_SQL = {
     """,
     
     'job_tracking_indexes': """
-        CREATE INDEX IF NOT EXISTS idx_job_url ON iran_jobs.job_tracking(job_url);
-        CREATE INDEX IF NOT EXISTS idx_active ON iran_jobs.job_tracking(is_active);
-        CREATE INDEX IF NOT EXISTS idx_last_seen ON iran_jobs.job_tracking(last_seen_date);
+        CREATE INDEX IF NOT EXISTS idx_job_url ON job_tracking(job_url);
+        CREATE INDEX IF NOT EXISTS idx_active ON job_tracking(is_active);
+        CREATE INDEX IF NOT EXISTS idx_last_seen ON job_tracking(last_seen_date);
     """,
     
     'job_skills': """
-        CREATE TABLE IF NOT EXISTS iran_jobs.job_skills (
+        CREATE TABLE IF NOT EXISTS job_skills (
             id BIGSERIAL PRIMARY KEY,
             
             job_posting_id BIGINT NOT NULL,
@@ -402,22 +395,22 @@ SCHEMA_SQL = {
             
             created_at TIMESTAMP DEFAULT NOW(),
             
-            FOREIGN KEY (job_posting_id) REFERENCES iran_jobs.job_postings(id) ON DELETE CASCADE,
-            FOREIGN KEY (skill_id) REFERENCES iran_jobs.skills(id),
+            FOREIGN KEY (job_posting_id) REFERENCES job_postings(id) ON DELETE CASCADE,
+            FOREIGN KEY (skill_id) REFERENCES skills(id),
             
             UNIQUE(job_posting_id, skill_id)
         );
     """,
     
     'job_skills_indexes': """
-        CREATE INDEX IF NOT EXISTS idx_job ON iran_jobs.job_skills(job_posting_id);
-        CREATE INDEX IF NOT EXISTS idx_skill ON iran_jobs.job_skills(skill_id);
-        CREATE INDEX IF NOT EXISTS idx_requirement_type ON iran_jobs.job_skills(requirement_type);
-        CREATE INDEX IF NOT EXISTS idx_confidence ON iran_jobs.job_skills(confidence_score);
+        CREATE INDEX IF NOT EXISTS idx_job ON job_skills(job_posting_id);
+        CREATE INDEX IF NOT EXISTS idx_skill ON job_skills(skill_id);
+        CREATE INDEX IF NOT EXISTS idx_requirement_type ON job_skills(requirement_type);
+        CREATE INDEX IF NOT EXISTS idx_confidence ON job_skills(confidence_score);
     """,
     
     'company_locations': """
-        CREATE TABLE IF NOT EXISTS iran_jobs.company_locations (
+        CREATE TABLE IF NOT EXISTS company_locations (
             id SERIAL PRIMARY KEY,
             
             company_id INTEGER NOT NULL,
@@ -446,22 +439,22 @@ SCHEMA_SQL = {
             created_at TIMESTAMP DEFAULT NOW(),
             updated_at TIMESTAMP DEFAULT NOW(),
             
-            FOREIGN KEY (company_id) REFERENCES iran_jobs.companies(id) ON DELETE CASCADE,
-            FOREIGN KEY (location_id) REFERENCES iran_jobs.locations(id),
+            FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE,
+            FOREIGN KEY (location_id) REFERENCES locations(id),
             
             UNIQUE(company_id, location_id, location_type)
         );
     """,
     
     'company_locations_indexes': """
-        CREATE INDEX IF NOT EXISTS idx_company ON iran_jobs.company_locations(company_id);
-        CREATE INDEX IF NOT EXISTS idx_location ON iran_jobs.company_locations(location_id);
-        CREATE INDEX IF NOT EXISTS idx_primary ON iran_jobs.company_locations(is_primary);
-        CREATE INDEX IF NOT EXISTS idx_active ON iran_jobs.company_locations(is_active);
+        CREATE INDEX IF NOT EXISTS idx_company ON company_locations(company_id);
+        CREATE INDEX IF NOT EXISTS idx_location ON company_locations(location_id);
+        CREATE INDEX IF NOT EXISTS idx_primary ON company_locations(is_primary);
+        CREATE INDEX IF NOT EXISTS idx_active ON company_locations(is_active);
     """,
     
     'company_tracking': """
-        CREATE TABLE IF NOT EXISTS iran_jobs.company_tracking (
+        CREATE TABLE IF NOT EXISTS company_tracking (
             id SERIAL PRIMARY KEY,
             
             company_url TEXT UNIQUE NOT NULL,
@@ -481,12 +474,12 @@ SCHEMA_SQL = {
     """,
     
     'company_tracking_indexes': """
-        CREATE INDEX IF NOT EXISTS idx_company_url ON iran_jobs.company_tracking(company_url);
-        CREATE INDEX IF NOT EXISTS idx_last_seen ON iran_jobs.company_tracking(last_seen_date);
+        CREATE INDEX IF NOT EXISTS idx_company_url ON company_tracking(company_url);
+        CREATE INDEX IF NOT EXISTS idx_last_seen ON company_tracking(last_seen_date);
     """,
     
     'processing_logs': """
-        CREATE TABLE IF NOT EXISTS iran_jobs.processing_logs (
+        CREATE TABLE IF NOT EXISTS processing_logs (
             id BIGSERIAL PRIMARY KEY,
             
             -- Process identification
@@ -518,14 +511,14 @@ SCHEMA_SQL = {
     """,
     
     'processing_logs_indexes': """
-        CREATE INDEX IF NOT EXISTS idx_process_type ON iran_jobs.processing_logs(process_type, status);
-        CREATE INDEX IF NOT EXISTS idx_session ON iran_jobs.processing_logs(scrape_session_id);
-        CREATE INDEX IF NOT EXISTS idx_timestamp ON iran_jobs.processing_logs(timestamp);
-        CREATE INDEX IF NOT EXISTS idx_entity ON iran_jobs.processing_logs(entity_type, entity_id);
+        CREATE INDEX IF NOT EXISTS idx_process_type ON processing_logs(process_type, status);
+        CREATE INDEX IF NOT EXISTS idx_session ON processing_logs(scrape_session_id);
+        CREATE INDEX IF NOT EXISTS idx_timestamp ON processing_logs(timestamp);
+        CREATE INDEX IF NOT EXISTS idx_entity ON processing_logs(entity_type, entity_id);
     """,
     
     'translation_cache': """
-        CREATE TABLE IF NOT EXISTS iran_jobs.translation_cache (
+        CREATE TABLE IF NOT EXISTS translation_cache (
             id BIGSERIAL PRIMARY KEY,
             
             -- Source content
@@ -551,15 +544,14 @@ SCHEMA_SQL = {
     """,
     
     'translation_cache_indexes': """
-        CREATE INDEX IF NOT EXISTS idx_hash_lookup ON iran_jobs.translation_cache(source_text_hash);
-        CREATE INDEX IF NOT EXISTS idx_usage ON iran_jobs.translation_cache(last_used_at, usage_count);
-        CREATE INDEX IF NOT EXISTS idx_language_pair ON iran_jobs.translation_cache(source_language, target_language);
+        CREATE INDEX IF NOT EXISTS idx_hash_lookup ON translation_cache(source_text_hash);
+        CREATE INDEX IF NOT EXISTS idx_usage ON translation_cache(last_used_at, usage_count);
+        CREATE INDEX IF NOT EXISTS idx_language_pair ON translation_cache(source_language, target_language);
     """
 }
 
 # Define table creation order (for foreign key dependencies)
 TABLE_ORDER = [
-    'schema_setup',  # Create schema first
     'raw_scrapes', 'raw_scrapes_indexes',
     'locations', 'locations_indexes', 
     'skills', 'skills_indexes',

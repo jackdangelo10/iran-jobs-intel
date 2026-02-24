@@ -107,7 +107,7 @@ class AnalyticsEngine:
         rows = self.conn.execute_write_returning(
             """
             WITH updated AS (
-                UPDATE iran_jobs.job_postings
+                UPDATE job_postings
                 SET is_active        = FALSE,
                     deactivated_date = CURRENT_DATE
                 WHERE last_seen_date < CURRENT_DATE - %s
@@ -140,7 +140,7 @@ class AnalyticsEngine:
                 COUNT(*)::int                                                     AS active_count,
                 COUNT(*) FILTER (WHERE first_seen_date >= CURRENT_DATE - 30)::int AS count_30d,
                 COUNT(*)::int                                                     AS total_count
-            FROM iran_jobs.job_postings
+            FROM job_postings
             WHERE company_id IS NOT NULL
               AND is_active = TRUE
             GROUP BY company_id
@@ -151,7 +151,7 @@ class AnalyticsEngine:
             velocity = round(row["count_30d"] / 30.0, 4)
             self.conn.execute_with_transaction(
                 """
-                UPDATE iran_jobs.companies
+                UPDATE companies
                 SET active_job_postings  = %s,
                     hiring_velocity_30d  = %s,
                     last_activity_date   = CURRENT_DATE,
@@ -164,14 +164,14 @@ class AnalyticsEngine:
         # Zero out companies that no longer have any active postings
         self.conn.execute_with_transaction(
             """
-            UPDATE iran_jobs.companies
+            UPDATE companies
             SET active_job_postings = 0,
                 hiring_velocity_30d = 0,
                 updated_at          = NOW()
             WHERE active_job_postings > 0
               AND id NOT IN (
                   SELECT DISTINCT company_id
-                  FROM iran_jobs.job_postings
+                  FROM job_postings
                   WHERE company_id IS NOT NULL
                     AND is_active = TRUE
               )
@@ -197,7 +197,7 @@ class AnalyticsEngine:
                     FILTER (WHERE is_active = TRUE AND company_id IS NOT NULL)::int   AS active_companies,
                 COUNT(*) FILTER (WHERE processing_status = 'processed')::int          AS processed_jobs,
                 COUNT(*) FILTER (WHERE processing_status = 'pending')::int            AS pending_jobs
-            FROM iran_jobs.job_postings
+            FROM job_postings
             """
         )
         return dict(row) if row else {}
@@ -219,7 +219,7 @@ class AnalyticsEngine:
         try:
             self.conn.execute_with_transaction(
                 """
-                INSERT INTO iran_jobs.processing_logs (
+                INSERT INTO processing_logs (
                     process_type, process_id, status, message,
                     details_json, records_processed, records_failed,
                     error_details, timestamp

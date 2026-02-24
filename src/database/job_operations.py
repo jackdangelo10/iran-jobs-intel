@@ -47,7 +47,7 @@ class JobOperations:
         )
         
         query = """
-            INSERT INTO iran_jobs.job_discoveries (
+            INSERT INTO job_discoveries (
                 scrape_session_id, job_url, company_url, source_site, found_on_page
             )
             VALUES (%s, %s, %s, %s, %s)
@@ -83,7 +83,7 @@ class JobOperations:
         if existing:
             # Update last_seen fields only
             query = """
-                UPDATE iran_jobs.job_tracking 
+                UPDATE job_tracking 
                 SET last_seen_session = %s, last_seen_date = CURRENT_DATE
                 WHERE job_url = %s
             """
@@ -102,7 +102,7 @@ class JobOperations:
             
             # Insert new tracking record
             query = """
-                INSERT INTO iran_jobs.job_tracking (
+                INSERT INTO job_tracking (
                     job_url, source_site, first_seen_session, 
                     last_seen_session, first_seen_date, last_seen_date
                 )
@@ -127,7 +127,7 @@ class JobOperations:
         """
         query = """
             SELECT 1
-            FROM iran_jobs.job_tracking
+            FROM job_tracking
             WHERE job_url = %s AND is_active = TRUE
         """
         
@@ -149,7 +149,7 @@ class JobOperations:
         """
         query = """
             SELECT job_url, source_site, first_seen_date, detail_scrape_count
-            FROM iran_jobs.job_tracking 
+            FROM job_tracking 
             WHERE detail_scraped = FALSE AND is_active = TRUE
             ORDER BY first_seen_date ASC
             LIMIT %s
@@ -167,7 +167,7 @@ class JobOperations:
         """
         if success:
             query = """
-                UPDATE iran_jobs.job_tracking 
+                UPDATE job_tracking 
                 SET detail_scraped = TRUE, 
                     last_detail_scrape_date = CURRENT_DATE,
                     detail_scrape_count = detail_scrape_count + 1
@@ -176,7 +176,7 @@ class JobOperations:
         else:
             # Failed scrape - increment count but don't mark as completed
             query = """
-                UPDATE iran_jobs.job_tracking 
+                UPDATE job_tracking 
                 SET detail_scrape_count = detail_scrape_count + 1,
                     last_detail_scrape_date = CURRENT_DATE
                 WHERE job_url = %s
@@ -213,7 +213,7 @@ class JobOperations:
         db_data = job.to_db_dict()
 
         query = """
-            INSERT INTO iran_jobs.job_postings (
+            INSERT INTO job_postings (
                 raw_scrape_id, external_id, source_site, source_url,
                 title_persian, title_english, description_persian, description_english,
                 company_name_raw, company_url, location_raw, employment_type, experience_level,
@@ -230,13 +230,13 @@ class JobOperations:
                 last_seen_date      = EXCLUDED.last_seen_date,
                 is_active           = TRUE,
                 raw_scrape_id       = COALESCE(EXCLUDED.raw_scrape_id,
-                                               iran_jobs.job_postings.raw_scrape_id),
+                                               job_postings.raw_scrape_id),
                 description_persian = COALESCE(EXCLUDED.description_persian,
-                                               iran_jobs.job_postings.description_persian),
+                                               job_postings.description_persian),
                 company_name_raw    = COALESCE(EXCLUDED.company_name_raw,
-                                               iran_jobs.job_postings.company_name_raw),
+                                               job_postings.company_name_raw),
                 location_raw        = COALESCE(EXCLUDED.location_raw,
-                                               iran_jobs.job_postings.location_raw)
+                                               job_postings.location_raw)
             RETURNING id
         """
 
@@ -284,7 +284,7 @@ class JobOperations:
         result = self.db_connection.execute_write_returning(
             """
             WITH updated AS (
-                UPDATE iran_jobs.job_postings
+                UPDATE job_postings
                 SET is_active = FALSE,
                     deactivated_date = CURRENT_DATE
                 WHERE last_seen_date < CURRENT_DATE - %s
@@ -310,7 +310,7 @@ class JobOperations:
                 company_id,
                 COUNT(*)::int                                                     AS active_count,
                 COUNT(*) FILTER (WHERE first_seen_date >= CURRENT_DATE - 30)::int AS count_30d
-            FROM iran_jobs.job_postings
+            FROM job_postings
             WHERE company_id IS NOT NULL
               AND is_active = TRUE
             GROUP BY company_id
@@ -330,7 +330,7 @@ class JobOperations:
         query = """
             SELECT id, title_persian, description_persian, company_name_raw, 
                    location_raw, source_site, external_id
-            FROM iran_jobs.job_postings
+            FROM job_postings
             WHERE processing_status = 'pending'
             ORDER BY first_seen_date DESC
             LIMIT %s

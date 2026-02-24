@@ -10,18 +10,18 @@
 -- ── 1. gender_requirement ─────────────────────────────────────────────────────
 -- Added to job_postings to capture demographic requirements scraped from the
 -- three job boards.  All three scrapers now write this field.
-ALTER TABLE iran_jobs.job_postings
+ALTER TABLE job_postings
     ADD COLUMN IF NOT EXISTS gender_requirement TEXT DEFAULT 'unknown';
 
 -- ── 2. latitude on locations ──────────────────────────────────────────────────
 -- The original schema.py had a syntax bug: the latitude column was defined as
 -- just "NUMERIC," with no column name, causing a PostgreSQL parse error and
 -- leaving the column absent.  This restores it.
-ALTER TABLE iran_jobs.locations
+ALTER TABLE locations
     ADD COLUMN IF NOT EXISTS latitude NUMERIC;
 
 -- ── 3. Index on gender_requirement ───────────────────────────────────────────
 -- schema.py already defines this index, but if the DB was created before
 -- gender_requirement existed the index creation would have been skipped.
 CREATE INDEX IF NOT EXISTS idx_gender_requirement
-    ON iran_jobs.job_postings (gender_requirement);
+    ON job_postings (gender_requirement);
