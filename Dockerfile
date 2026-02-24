@@ -77,5 +77,6 @@ ENV CHROMEDRIVER_PATH=/usr/local/bin/chromedriver
 RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app
 USER appuser
 
-# Default entry point - can be overridden by Cloud Run Job args
-CMD ["python", "main.py", "scraper"]
+# ENTRYPOINT stays fixed; Cloud Run Job --args replaces CMD (the default job type)
+ENTRYPOINT ["python", "main.py"]
+CMD ["scraper"]

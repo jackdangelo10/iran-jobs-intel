@@ -57,7 +57,9 @@ def load_settings() -> Settings:
             pass
 
     # Detect environment
-    is_cloud_run = os.getenv('K_SERVICE') is not None # Cloud Run sets this variable
+    # K_SERVICE is set by Cloud Run Services; CLOUD_RUN_JOB is set by Cloud Run Jobs
+    is_cloud_run = (os.getenv('K_SERVICE') is not None
+                    or os.getenv('CLOUD_RUN_JOB') is not None)
     environment = 'production' if is_cloud_run else 'development'
 
     print(f"🔧 Environment: {environment}")
