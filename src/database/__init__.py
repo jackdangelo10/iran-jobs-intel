@@ -27,10 +27,7 @@ class IranJobsDB:
             conninfo: PostgreSQL connection string. If None, uses settings.database_url
         """
         self.db_connection = DatabaseConnection(conninfo)
-        
-        # Setup database schema (creates tables if they don't exist)
-        self.setup_database()
-        
+
         # Initialize operation classes
         self.companies = CompanyOperations(self.db_connection)
         self.jobs = JobOperations(self.db_connection)
