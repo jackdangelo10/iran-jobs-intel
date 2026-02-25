@@ -17,6 +17,7 @@ from src.config.settings import settings
 import requests
 from selenium import webdriver
 from selenium.webdriver.support.ui import WebDriverWait
+from selenium.common.exceptions import TimeoutException, WebDriverException
 
 ScrapingMethod = Literal["requests", "selenium"]
 
@@ -124,14 +125,48 @@ class BaseScraper(ABC):
         if self.scraping_method == "requests":
             if not self.session:
                 raise RuntimeError("Session not initialized for requests method")
-            response = self.session.get(url, timeout=timeout)
-            return response.text, response.status_code
+            last_err: Exception | None = None
+            for attempt in range(settings.max_retries + 1):
+                try:
+                    response = self.session.get(url, timeout=timeout)
+                    return response.text, response.status_code
+                except requests.exceptions.RequestException as e:
+                    last_err = e
+                    if attempt >= settings.max_retries:
+                        raise
+                    backoff = 2 ** attempt
+                    print(f"  WARN: request error (attempt {attempt + 1}), retrying in {backoff}s: {e}")
+                    import time
+                    time.sleep(backoff)
+            raise last_err if last_err else RuntimeError("Unknown requests error")
         
         elif self.scraping_method == "selenium":
-            driver = self._get_or_create_driver()
-            driver.get(url)
-            self._wait_for_page_load()
-            return driver.page_source, 200
+            last_err: Exception | None = None
+            for attempt in range(settings.max_retries + 1):
+                try:
+                    driver = self._get_or_create_driver()
+                    driver.get(url)
+                    self._wait_for_page_load()
+                    return driver.page_source, 200
+                except (TimeoutException, WebDriverException) as e:
+                    last_err = e
+                    # Try to stop loading and reset driver on hard failures
+                    try:
+                        if self.driver:
+                            self.driver.execute_script("window.stop();")
+                    except Exception:
+                        pass
+                    DriverManager.cleanup_driver(self.driver)
+                    self.driver = None
+                    self.wait = None
+
+                    if attempt >= settings.max_retries:
+                        raise
+                    backoff = 2 ** attempt
+                    print(f"  WARN: selenium error (attempt {attempt + 1}), retrying in {backoff}s: {e}")
+                    import time
+                    time.sleep(backoff)
+            raise last_err if last_err else RuntimeError("Unknown selenium error")
         
         else:
             raise ValueError(f"Unknown scraping method: {self.scraping_method}")
@@ -143,6 +178,17 @@ class BaseScraper(ABC):
         """
         import time
         time.sleep(2)
+
+    def _seen_ratio_on_page(self, job_urls: list[str]) -> tuple[int, int, float]:
+        """
+        Return (seen_count, total_count, ratio_seen) for a page's URLs.
+        """
+        total = len(job_urls)
+        if total == 0:
+            return 0, 0, 0.0
+        seen = self.database.jobs.get_existing_job_urls(job_urls)
+        seen_count = len(seen)
+        return seen_count, total, seen_count / total
     
     def cleanup(self):
         """
@@ -224,14 +270,13 @@ class BaseScraper(ABC):
             if len(unique_job_urls) != len(job_urls):
                 print(f"Removed {len(job_urls) - len(unique_job_urls)} duplicate URLs")
             
-            # Step 2: Record discoveries and update tracking
-            for job_url in unique_job_urls:
-                self.database.jobs.record_job_discovery(
-                    self.session_id, job_url, self.source_site
-                )
-                self.database.jobs.update_job_tracking(
-                    job_url, self.source_site, self.session_id
-                )
+            # Step 2: Record discoveries and update tracking (batch)
+            self.database.jobs.record_job_discoveries_batch(
+                self.session_id, self.source_site, unique_job_urls
+            )
+            self.database.jobs.update_job_tracking_batch(
+                unique_job_urls, self.source_site, self.session_id
+            )
             
             # Step 3: Get jobs needing detail scraping
             unscraped_jobs = self.database.jobs.get_jobs_needing_scraping()

@@ -60,6 +60,39 @@ class JobOperations:
              discovery.source_site, discovery.found_on_page)
         )
 
+    def record_job_discoveries_batch(
+        self,
+        scrape_session_id: str,
+        source_site: str,
+        job_urls: list[str],
+        company_url: str | None = None,
+        found_on_page: str | None = None,
+        batch_size: int = 500
+    ) -> None:
+        """
+        Record many discovered job URLs in batches.
+
+        Uses ON CONFLICT DO NOTHING to avoid duplicate insert failures.
+        """
+        if not job_urls:
+            return
+
+        query = """
+            INSERT INTO job_discoveries (
+                scrape_session_id, job_url, company_url, source_site, found_on_page
+            )
+            VALUES (%s, %s, %s, %s, %s)
+            ON CONFLICT (scrape_session_id, job_url) DO NOTHING
+        """
+
+        for i in range(0, len(job_urls), batch_size):
+            chunk = job_urls[i:i + batch_size]
+            params_list = [
+                (scrape_session_id, url, company_url, source_site, found_on_page)
+                for url in chunk
+            ]
+            self.db_connection.execute_batch(query, params_list)
+
     def update_job_tracking(
         self, 
         job_url: str, 
@@ -114,6 +147,42 @@ class JobOperations:
                  tracking.first_seen_session, tracking.last_seen_session,
                  tracking.first_seen_date, tracking.last_seen_date)
             )
+
+    def update_job_tracking_batch(
+        self,
+        job_urls: list[str],
+        source_site: str,
+        session_id: str,
+        batch_size: int = 500
+    ) -> None:
+        """
+        Insert or update job tracking records for many URLs.
+
+        Inserts new records and updates last_seen fields for existing ones.
+        """
+        if not job_urls:
+            return
+
+        today = date.today()
+        query = """
+            INSERT INTO job_tracking (
+                job_url, source_site, first_seen_session,
+                last_seen_session, first_seen_date, last_seen_date
+            )
+            VALUES (%s, %s, %s, %s, %s, %s)
+            ON CONFLICT (job_url) DO UPDATE SET
+                last_seen_session = EXCLUDED.last_seen_session,
+                last_seen_date = EXCLUDED.last_seen_date,
+                is_active = TRUE
+        """
+
+        for i in range(0, len(job_urls), batch_size):
+            chunk = job_urls[i:i + batch_size]
+            params_list = [
+                (url, source_site, session_id, session_id, today, today)
+                for url in chunk
+            ]
+            self.db_connection.execute_batch(query, params_list)
 
     def _get_job_tracking(self, job_url: str) -> bool:
         """
@@ -337,3 +406,18 @@ class JobOperations:
         """
         
         return self.db_connection.fetchall(query, (limit,))
+
+    def get_existing_job_urls(self, job_urls: list[str]) -> set[str]:
+        """
+        Return the subset of job_urls that already exist in job_tracking.
+        """
+        if not job_urls:
+            return set()
+
+        query = """
+            SELECT job_url
+            FROM job_tracking
+            WHERE job_url = ANY(%s)
+        """
+        rows = self.db_connection.fetchall(query, (job_urls,))
+        return {row["job_url"] for row in rows}

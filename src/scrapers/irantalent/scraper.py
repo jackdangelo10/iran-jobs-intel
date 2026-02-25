@@ -43,7 +43,14 @@ class IranTalentScraper(BaseScraper):
     def discover_job_urls(self) -> List[str]:
         """Paginate through job search pages and collect job URLs"""
         all_job_urls = []
-        page = 1
+        last_success_page = self.database.scrapes.get_last_success_page(self.source_site)
+        page = max(1, last_success_page + 1)
+
+        consecutive_errors = 0
+        max_consecutive_errors = 3
+        consecutive_seen_pages = 0
+        max_consecutive_seen_pages = 5
+        seen_ratio_threshold = 1.0
 
         while True:
             page_url = f"{self.jobs_list_url}?language=english&page={page}"
@@ -53,7 +60,12 @@ class IranTalentScraper(BaseScraper):
                 print(f"Status Code: {status_code}")
                 if status_code != 200:
                     print(f"Failed to retrieve page {page}")
-                    break
+                    consecutive_errors += 1
+                    if consecutive_errors >= max_consecutive_errors:
+                        print("Too many errors. Stopping.")
+                        break
+                    time.sleep(self.request_delay)
+                    continue
 
                 # Save raw HTML
                 scrape_id = self.database.scrapes.save_raw_scrape(
@@ -75,6 +87,22 @@ class IranTalentScraper(BaseScraper):
                 all_job_urls.extend(page_job_urls)
 
                 print(f"Found {len(page_job_urls)} jobs on page {page}")
+                consecutive_errors = 0
+
+                seen_count, total_count, seen_ratio = self._seen_ratio_on_page(page_job_urls)
+                if total_count > 0 and seen_ratio >= seen_ratio_threshold:
+                    consecutive_seen_pages += 1
+                    print(f"Seen-only page streak: {consecutive_seen_pages}/{max_consecutive_seen_pages}")
+                    if consecutive_seen_pages >= max_consecutive_seen_pages:
+                        print("Too many consecutive seen-only pages. Stopping.")
+                        break
+                else:
+                    consecutive_seen_pages = 0
+
+                # Update progress after a successful page
+                self.database.scrapes.update_last_success_page(
+                    self.source_site, page, self.session_id
+                )
                 
                 # Polite delay
                 time.sleep(self.request_delay)
@@ -82,7 +110,12 @@ class IranTalentScraper(BaseScraper):
 
             except Exception as e:
                 print(f"Error scraping page {page}: {e}")
-                break
+                consecutive_errors += 1
+                if consecutive_errors >= max_consecutive_errors:
+                    print("Too many errors. Stopping.")
+                    break
+                time.sleep(self.request_delay)
+                continue
 
         return all_job_urls
     

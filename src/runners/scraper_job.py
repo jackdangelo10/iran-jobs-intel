@@ -163,15 +163,15 @@ def run_scraper_job(dry_run: bool = False) -> dict[str, Any]:
                     
                     logger.info(f"✅ {site_name}: Discovered {len(unique_urls)} unique jobs")
                     
-                    # Record discoveries in database
+                    # Record discoveries and tracking in batches
+                    db.jobs.record_job_discoveries_batch(
+                        session_id, scraper.source_site, unique_urls
+                    )
+                    db.jobs.update_job_tracking_batch(
+                        unique_urls, scraper.source_site, session_id
+                    )
+
                     for job_url in unique_urls:
-                        db.jobs.record_job_discovery(
-                            session_id, job_url, scraper.source_site
-                        )
-                        db.jobs.update_job_tracking(
-                            job_url, scraper.source_site, session_id
-                        )
-                        
                         # Add to parallel queue
                         all_discovered_jobs.append({
                             'job_url': job_url,

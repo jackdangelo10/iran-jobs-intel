@@ -547,6 +547,20 @@ SCHEMA_SQL = {
         CREATE INDEX IF NOT EXISTS idx_hash_lookup ON translation_cache(source_text_hash);
         CREATE INDEX IF NOT EXISTS idx_usage ON translation_cache(last_used_at, usage_count);
         CREATE INDEX IF NOT EXISTS idx_language_pair ON translation_cache(source_language, target_language);
+    """,
+
+    'scrape_progress': """
+        CREATE TABLE IF NOT EXISTS scrape_progress (
+            id BIGSERIAL PRIMARY KEY,
+            source_site TEXT NOT NULL UNIQUE,
+            last_success_page INTEGER NOT NULL DEFAULT 0,
+            last_success_at TIMESTAMP DEFAULT NOW(),
+            last_session_id TEXT
+        );
+    """,
+
+    'scrape_progress_indexes': """
+        CREATE INDEX IF NOT EXISTS idx_scrape_progress_site ON scrape_progress(source_site);
     """
 }
 
@@ -563,5 +577,6 @@ TABLE_ORDER = [
     'company_locations', 'company_locations_indexes', 
     'company_tracking', 'company_tracking_indexes',
     'processing_logs', 'processing_logs_indexes',
-    'translation_cache', 'translation_cache_indexes'
+    'translation_cache', 'translation_cache_indexes',
+    'scrape_progress', 'scrape_progress_indexes'
 ]

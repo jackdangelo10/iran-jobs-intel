@@ -237,3 +237,29 @@ class DatabaseConnection:
             raise e
         finally:
             self.return_connection(conn)
+
+    def execute_batch(
+        self,
+        sql: str,
+        params_list: list[tuple[Any, ...]]
+    ) -> None:
+        """
+        Execute a batch of statements in a single transaction.
+
+        Args:
+            sql: SQL statement to execute with parameters
+            params_list: List of parameter tuples
+        """
+        if not params_list:
+            return
+
+        conn = self.get_connection()
+        try:
+            with conn.cursor() as cursor:
+                cursor.executemany(self._to_literal(sql), params_list)
+                conn.commit()
+        except Exception as e:
+            conn.rollback()
+            raise e
+        finally:
+            self.return_connection(conn)

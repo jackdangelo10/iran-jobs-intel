@@ -109,3 +109,40 @@ class ScrapeOperations:
              scrape.scrape_session_id, scrape.raw_html, scrape.html_size, 
              scrape.response_status, scrape.content_hash, scrape.is_duplicate)
         )
+
+    def get_last_success_page(self, source_site: str) -> int:
+        """
+        Get the last successful discovery page for a source site.
+        """
+        query = """
+            SELECT last_success_page
+            FROM scrape_progress
+            WHERE source_site = %s
+        """
+        result = self.db_connection.fetchone(query, (source_site,))
+        if result and "last_success_page" in result:
+            return int(result["last_success_page"])
+        return 0
+
+    def update_last_success_page(
+        self,
+        source_site: str,
+        last_success_page: int,
+        session_id: str | None = None
+    ) -> None:
+        """
+        Upsert last successful discovery page for a source site.
+        """
+        query = """
+            INSERT INTO scrape_progress (
+                source_site, last_success_page, last_success_at, last_session_id
+            )
+            VALUES (%s, %s, NOW(), %s)
+            ON CONFLICT (source_site) DO UPDATE SET
+                last_success_page = EXCLUDED.last_success_page,
+                last_success_at = EXCLUDED.last_success_at,
+                last_session_id = EXCLUDED.last_session_id
+        """
+        self.db_connection.execute_with_transaction(
+            query, (source_site, last_success_page, session_id)
+        )
