@@ -27,7 +27,7 @@ class Settings:
     
     # Selenium configuration
     headless: bool = True
-    page_load_timeout: int = 40
+    page_load_timeout: int = 90
 
 def load_settings() -> Settings:
     """
@@ -74,6 +74,7 @@ def load_settings() -> Settings:
     request_delay = int(os.getenv('SCRAPER_DELAY_SECONDS', '2'))
     max_retries = int(os.getenv('SCRAPER_MAX_RETRIES', '3'))
     headless = os.getenv('SELENIUM_HEADLESS', 'true').lower() == 'true'
+    page_load_timeout = int(os.getenv('SELENIUM_PAGE_LOAD_TIMEOUT', '90'))
 
     return Settings(
         environment=environment,
@@ -82,7 +83,8 @@ def load_settings() -> Settings:
         database_url=database_url,
         request_delay_seconds=request_delay,
         max_retries=max_retries,
-        headless=headless
+        headless=headless,
+        page_load_timeout=page_load_timeout
     )
 
 

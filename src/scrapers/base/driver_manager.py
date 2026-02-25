@@ -33,7 +33,7 @@ class DriverManager:
     """
     
     @staticmethod
-    def get_chrome_options(headless: bool = True) -> Options:
+    def get_chrome_options(headless: bool = True, page_load_strategy: str = "eager") -> Options:
         """
         Get standard Chrome options for scraping.
         
@@ -64,10 +64,17 @@ class DriverManager:
         chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
         chrome_options.add_experimental_option('useAutomationExtension', False)
         
+        # Reduce page load blocking on heavy pages
+        chrome_options.page_load_strategy = page_load_strategy
+
         return chrome_options
     
     @staticmethod
-    def create_driver(headless: bool = True, timeout: int = 40) -> webdriver.Chrome:
+    def create_driver(
+        headless: bool = True,
+        timeout: int = 40,
+        page_load_strategy: str = "eager"
+    ) -> webdriver.Chrome:
         """
         Create a new Chrome WebDriver with anti-detection settings.
         
@@ -78,7 +85,10 @@ class DriverManager:
         Returns:
             Configured Chrome WebDriver
         """
-        chrome_options = DriverManager.get_chrome_options(headless)
+        chrome_options = DriverManager.get_chrome_options(
+            headless=headless,
+            page_load_strategy=page_load_strategy
+        )
         driver = webdriver.Chrome(options=chrome_options)
         
         # Remove webdriver property to avoid detection

@@ -13,6 +13,7 @@ from src.database import IranJobsDB
 from src.database.models import JobPosting
 from src.scrapers.base.rate_limiter import RateLimiterRegistry
 from src.scrapers.base.driver_manager import DriverManager
+from src.config.settings import settings
 import requests
 from selenium import webdriver
 from selenium.webdriver.support.ui import WebDriverWait
@@ -83,9 +84,10 @@ class BaseScraper(ABC):
         if self.driver is None:
             self.driver = DriverManager.create_driver(
                 headless=True,
-                timeout=40
+                timeout=settings.page_load_timeout,
+                page_load_strategy="eager"
             )
-            self.wait = WebDriverWait(self.driver, 40)
+            self.wait = WebDriverWait(self.driver, settings.page_load_timeout)
         
         return self.driver
     
