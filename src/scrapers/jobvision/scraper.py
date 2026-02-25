@@ -2,6 +2,7 @@
 from __future__ import annotations
 from typing import List
 from src.scrapers.base.base_scraper import BaseScraper
+from src.config.settings import settings
 from src.database.models import JobPosting
 from datetime import date
 import time
@@ -44,14 +45,17 @@ class JobVisionScraper(BaseScraper):
     def discover_job_urls(self) -> List[str]:
         """Paginate through job search pages and collect job URLs"""
         all_job_urls = []
-        last_success_page = self.database.scrapes.get_last_success_page(self.source_site)
-        page = max(1, last_success_page - 1)
+        if settings.force_full_crawl:
+            page = 1
+        else:
+            last_success_page = self.database.scrapes.get_last_success_page(self.source_site)
+            page = max(1, last_success_page + settings.resume_page_offset)
 
         consecutive_errors = 0
         max_consecutive_errors = 3
         consecutive_seen_pages = 0
-        max_consecutive_seen_pages = 5
-        seen_ratio_threshold = 1.0
+        max_consecutive_seen_pages = settings.max_consecutive_seen_pages
+        seen_ratio_threshold = settings.seen_ratio_threshold
 
         while True:
             page_url = f"{self.jobs_list_url}?page={page}"
@@ -83,6 +87,10 @@ class JobVisionScraper(BaseScraper):
                 # Check if we've reached the end
                 if self._is_no_results_page(html):
                     print(f"No more results found at page {page}")
+                    # Reset progress so next run starts at page 1
+                    self.database.scrapes.update_last_success_page(
+                        self.source_site, 0, self.session_id
+                    )
                     break
 
                 # Parse job URLs from this page
@@ -92,15 +100,16 @@ class JobVisionScraper(BaseScraper):
                 print(f"Found {len(page_job_urls)} jobs on page {page}")
                 consecutive_errors = 0
 
-                seen_count, total_count, seen_ratio = self._seen_ratio_on_page(page_job_urls)
-                if total_count > 0 and seen_ratio >= seen_ratio_threshold:
-                    consecutive_seen_pages += 1
-                    print(f"Seen-only page streak: {consecutive_seen_pages}/{max_consecutive_seen_pages}")
-                    if consecutive_seen_pages >= max_consecutive_seen_pages:
-                        print("Too many consecutive seen-only pages. Stopping.")
-                        break
-                else:
-                    consecutive_seen_pages = 0
+                if max_consecutive_seen_pages > 0 and not settings.force_full_crawl:
+                    seen_count, total_count, seen_ratio = self._seen_ratio_on_page(page_job_urls)
+                    if total_count > 0 and seen_ratio >= seen_ratio_threshold:
+                        consecutive_seen_pages += 1
+                        print(f"Seen-only page streak: {consecutive_seen_pages}/{max_consecutive_seen_pages}")
+                        if consecutive_seen_pages >= max_consecutive_seen_pages:
+                            print("Too many consecutive seen-only pages. Stopping.")
+                            break
+                    else:
+                        consecutive_seen_pages = 0
 
                 # Update progress after a successful page
                 self.database.scrapes.update_last_success_page(

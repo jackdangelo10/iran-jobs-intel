@@ -24,6 +24,12 @@ class Settings:
     request_delay_seconds: int = 2
     max_retries: int = 3
     scraping_timeout_seconds: int = 30
+
+    # Discovery resume/stop controls
+    max_consecutive_seen_pages: int = 5
+    seen_ratio_threshold: float = 1.0
+    resume_page_offset: int = -1
+    force_full_crawl: bool = False
     
     # Selenium configuration
     headless: bool = True
@@ -75,6 +81,10 @@ def load_settings() -> Settings:
     max_retries = int(os.getenv('SCRAPER_MAX_RETRIES', '3'))
     headless = os.getenv('SELENIUM_HEADLESS', 'true').lower() == 'true'
     page_load_timeout = int(os.getenv('SELENIUM_PAGE_LOAD_TIMEOUT', '90'))
+    max_consecutive_seen_pages = int(os.getenv('SCRAPER_MAX_CONSECUTIVE_SEEN_PAGES', '5'))
+    seen_ratio_threshold = float(os.getenv('SCRAPER_SEEN_RATIO_THRESHOLD', '1.0'))
+    resume_page_offset = int(os.getenv('SCRAPER_RESUME_PAGE_OFFSET', '-1'))
+    force_full_crawl = os.getenv('SCRAPER_FORCE_FULL_CRAWL', 'false').lower() == 'true'
 
     return Settings(
         environment=environment,
@@ -84,7 +94,11 @@ def load_settings() -> Settings:
         request_delay_seconds=request_delay,
         max_retries=max_retries,
         headless=headless,
-        page_load_timeout=page_load_timeout
+        page_load_timeout=page_load_timeout,
+        max_consecutive_seen_pages=max_consecutive_seen_pages,
+        seen_ratio_threshold=seen_ratio_threshold,
+        resume_page_offset=resume_page_offset,
+        force_full_crawl=force_full_crawl
     )
 
 
