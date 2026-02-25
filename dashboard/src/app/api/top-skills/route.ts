@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
@@ -20,7 +20,7 @@ export async function GET(request: NextRequest) {
       JOIN skills s ON s.id = js.skill_id
       JOIN job_postings jp ON jp.id = js.job_posting_id
       WHERE (${site} = 'all' OR jp.source_site = ${site})
-        AND jp.first_seen_date >= CURRENT_DATE - ${days}
+        AND jp.first_seen_date >= CURRENT_DATE - (${days}::int)
       GROUP BY s.skill_name_english
       ORDER BY count DESC
       LIMIT 15

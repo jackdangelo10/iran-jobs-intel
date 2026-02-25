@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
@@ -19,7 +19,7 @@ export async function GET(request: NextRequest) {
         COUNT(*)::int AS count
       FROM job_postings
       WHERE (${site} = 'all' OR source_site = ${site})
-        AND first_seen_date >= CURRENT_DATE - ${days}
+        AND first_seen_date >= CURRENT_DATE - (${days}::int)
       GROUP BY first_seen_date, source_site
       ORDER BY first_seen_date ASC
     `;

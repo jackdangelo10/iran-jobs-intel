@@ -9,6 +9,7 @@ import TopCompaniesChart from "@/components/TopCompaniesChart";
 import TopSkillsChart from "@/components/TopSkillsChart";
 import LocationChart from "@/components/LocationChart";
 import BreakdownCharts from "@/components/BreakdownCharts";
+import JobsTable from "@/components/JobsTable";
 
 interface Stats {
   total_jobs: number;
@@ -235,6 +236,9 @@ function DashboardContent() {
           />
         )}
       </div>
+
+      {/* Latest Jobs */}
+      <JobsTable />
 
       {/* Footer */}
       <div className="text-center text-xs text-slate-600 py-4">

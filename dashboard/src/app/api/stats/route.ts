@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
@@ -20,7 +20,7 @@ export async function GET(request: NextRequest) {
         COUNT(*) FILTER (WHERE first_seen_date >= CURRENT_DATE - 7)::int AS new_this_week
       FROM job_postings
       WHERE (${site} = 'all' OR source_site = ${site})
-        AND first_seen_date >= CURRENT_DATE - ${days}
+        AND first_seen_date >= CURRENT_DATE - (${days}::int)
     `;
 
     return NextResponse.json(rows[0]);

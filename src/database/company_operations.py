@@ -32,46 +32,33 @@ class CompanyOperations:
             source_site: Site where company was found (irantalent, jobvision, jobinja)
             session_id: Current scraping session UUID
         """
-        # Check if company already exists
-        existing = self._get_company_tracking(company_url)
-        
-        if not existing:
-            # Create and validate model
-            today = date.today()
-            tracking = CompanyTracking(
-                company_url=company_url,
-                source_site=source_site,
-                first_seen_session=session_id,
-                last_seen_session=session_id,
-                first_seen_date=today,
-                last_seen_date=today
+        # Use an atomic upsert to avoid duplicate key errors under concurrency.
+        today = date.today()
+        tracking = CompanyTracking(
+            company_url=company_url,
+            source_site=source_site,
+            first_seen_session=session_id,
+            last_seen_session=session_id,
+            first_seen_date=today,
+            last_seen_date=today
+        )
+
+        query = """
+            INSERT INTO company_tracking (
+                company_url, source_site, first_seen_session, 
+                last_seen_session, first_seen_date, last_seen_date
             )
-            
-            # Insert new company tracking record
-            query = """
-                INSERT INTO company_tracking (
-                    company_url, source_site, first_seen_session, 
-                    last_seen_session, first_seen_date, last_seen_date
-                )
-                VALUES (%s, %s, %s, %s, %s, %s)
-            """
-            self.db_connection.execute_with_transaction(
-                query, 
-                (tracking.company_url, tracking.source_site, 
-                 tracking.first_seen_session, tracking.last_seen_session,
-                 tracking.first_seen_date, tracking.last_seen_date)
-            )
-        else:
-            # Update last seen information
-            query = """
-                UPDATE company_tracking 
-                SET last_seen_session = %s, last_seen_date = CURRENT_DATE
-                WHERE company_url = %s
-            """
-            self.db_connection.execute_with_transaction(
-                query, 
-                (session_id, company_url)
-            )
+            VALUES (%s, %s, %s, %s, %s, %s)
+            ON CONFLICT (company_url) DO UPDATE SET
+                last_seen_session = EXCLUDED.last_seen_session,
+                last_seen_date = CURRENT_DATE
+        """
+        self.db_connection.execute_with_transaction(
+            query, 
+            (tracking.company_url, tracking.source_site, 
+             tracking.first_seen_session, tracking.last_seen_session,
+             tracking.first_seen_date, tracking.last_seen_date)
+        )
 
     def _get_company_tracking(self, company_url: str) -> dict | None:
         """
