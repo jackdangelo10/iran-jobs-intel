@@ -132,7 +132,10 @@ class ScrapeOperations:
     ) -> None:
         """
         Upsert last successful discovery page for a source site.
+        Logs a warning on failure rather than raising, so a DB permission issue
+        cannot cause the scraper to loop indefinitely on the same page.
         """
+        import logging
         query = """
             INSERT INTO scrape_progress (
                 source_site, last_success_page, last_success_at, last_session_id
@@ -143,6 +146,12 @@ class ScrapeOperations:
                 last_success_at = EXCLUDED.last_success_at,
                 last_session_id = EXCLUDED.last_session_id
         """
-        self.db_connection.execute_with_transaction(
-            query, (source_site, last_success_page, session_id)
-        )
+        try:
+            self.db_connection.execute_with_transaction(
+                query, (source_site, last_success_page, session_id)
+            )
+        except Exception as e:
+            logging.getLogger(__name__).warning(
+                "Failed to update scrape_progress for %s page %d: %s",
+                source_site, last_success_page, e
+            )
