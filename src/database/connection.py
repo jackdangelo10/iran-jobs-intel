@@ -38,10 +38,18 @@ class DatabaseConnection:
         
         # Connection pool for efficient connection reuse
         # min_size=1, max_size=10 is good for Cloud Run Jobs (single instance)
+        # check: validates connections before checkout - replaces dead ones (Supabase idle timeout)
+        # max_idle=300: recycles pool connections after 5 min idle (before Supabase kills them)
+        # max_lifetime=3600: hard cap of 1 hour per connection
+        # reconnect_timeout=30: wait up to 30s for a fresh connection on reconnect
         self.pool: ConnectionPool[psycopg.Connection[DictRow]] = ConnectionPool(
             conninfo=self.conninfo,
             min_size=1,
             max_size=10,
+            max_idle=300,
+            max_lifetime=3600,
+            reconnect_timeout=30,
+            check=ConnectionPool.check_connection,
             kwargs={'row_factory': dict_row}  # Return results as dicts by default
         )
         
