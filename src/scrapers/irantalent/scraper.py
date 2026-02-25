@@ -44,7 +44,7 @@ class IranTalentScraper(BaseScraper):
         """Paginate through job search pages and collect job URLs"""
         all_job_urls = []
         last_success_page = self.database.scrapes.get_last_success_page(self.source_site)
-        page = max(1, last_success_page + 1)
+        page = max(1, last_success_page - 1)
 
         consecutive_errors = 0
         max_consecutive_errors = 3
