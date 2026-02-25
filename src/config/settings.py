@@ -117,6 +117,8 @@ def _load_database_url(is_cloud_run: bool, gcp_project_id: str | None) -> str:
         
         try:
             database_url = get_secret("IRAN_JOBS_SCRAPER_DATABASE_URL", project_id=gcp_project_id)
+            if isinstance(database_url, str):
+                database_url = database_url.strip()
             print("✅ Database URL loaded from Secret Manager")
             return database_url
         except Exception as e:
@@ -130,6 +132,8 @@ def _load_database_url(is_cloud_run: bool, gcp_project_id: str | None) -> str:
         load_dotenv()
         
         database_url = os.getenv('IRAN_JOBS_SCRAPER_DATABASE_URL')
+        if isinstance(database_url, str):
+            database_url = database_url.strip()
         
         if not database_url:
             raise ValueError(
