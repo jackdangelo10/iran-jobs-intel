@@ -1,4 +1,4 @@
-# src/scrapers/jobinja/scraper.py
+﻿# src/scrapers/jobinja/scraper.py
 from __future__ import annotations
 from typing import List
 from src.scrapers.base.base_scraper import BaseScraper
@@ -7,8 +7,10 @@ from src.database.models import JobPosting
 from datetime import date
 import time
 import random
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from bs4 import BeautifulSoup
 from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support import expected_conditions as EC
 
 class JobinjaScraper(BaseScraper):
@@ -65,7 +67,7 @@ class JobinjaScraper(BaseScraper):
             if not self.wait or not self.driver:
                 return
                 
-            print("⏳ Waiting for Arvan CDN challenge...")
+            print("â³ Waiting for Arvan CDN challenge...")
             time.sleep(5)
             
             # Wait up to 30 seconds for challenge to complete
@@ -77,7 +79,7 @@ class JobinjaScraper(BaseScraper):
                     # Check if challenge page is still visible
                     challenge_elements = self.driver.find_elements(By.CLASS_NAME, "error-section")
                     if not challenge_elements or not any(elem.is_displayed() for elem in challenge_elements):
-                        print("✓ Challenge passed!")
+                        print("âœ“ Challenge passed!")
                         break
                 except:
                     break
@@ -87,10 +89,10 @@ class JobinjaScraper(BaseScraper):
             
             # Check for reCAPTCHA and click it if present
             try:
-                print("\n🔍 Checking for reCAPTCHA...")
+                print("\nðŸ” Checking for reCAPTCHA...")
                 recaptcha_frame = self.driver.find_elements(By.CSS_SELECTOR, "iframe[src*='recaptcha']")
                 if recaptcha_frame:
-                    print("⚠️ reCAPTCHA detected - attempting to click...")
+                    print("âš ï¸ reCAPTCHA detected - attempting to click...")
                     self.driver.switch_to.frame(recaptcha_frame[0])
                     
                     # Click the checkbox
@@ -98,149 +100,166 @@ class JobinjaScraper(BaseScraper):
                         (By.CLASS_NAME, "recaptcha-checkbox-border")
                     ))
                     checkbox.click()
-                    print("✓ Clicked reCAPTCHA checkbox")
+                    print("âœ“ Clicked reCAPTCHA checkbox")
                     
                     # Switch back to main content
                     self.driver.switch_to.default_content()
                     time.sleep(3)
             except Exception as e:
-                print(f"ℹ️ No reCAPTCHA or already solved: {e}")
+                print(f"â„¹ï¸ No reCAPTCHA or already solved: {e}")
                 self.driver.switch_to.default_content()
             
             # Now wait for actual job listings
-            print("⏳ Waiting for job listings...")
+            print("â³ Waiting for job listings...")
             self.wait.until(EC.presence_of_element_located(
                 (By.CSS_SELECTOR, "a.c-jobListView__titleLink")
             ))
-            print("✓ Job listings loaded")
+            print("âœ“ Job listings loaded")
             
             time.sleep(random.uniform(2, 3))
             
         except Exception as e:
-            print(f"\n⚠️ Page load issue: {e}")
-    
+            print(f"\nâš ï¸ Page load issue: {e}")
+
+    def _get_keywords(self) -> list[str]:
+        if settings.water_focus_enabled:
+            return settings.jobinja_water_keywords_fa or ["آب"]
+        return [""]
+
+    def _set_page(self, url: str, page: int) -> str:
+        parsed = urlsplit(url)
+        query = dict(parse_qsl(parsed.query, keep_blank_values=True))
+        query["page"] = str(page)
+        return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, urlencode(query), parsed.fragment))
+
+    def _resolve_keyword_search_url(self, keyword: str) -> str:
+        if not keyword:
+            return self.jobs_list_url
+
+        try:
+            driver = self._get_or_create_driver()
+            driver.get(self.jobs_list_url)
+            self._wait_for_page_load()
+
+            search_input = driver.find_element(By.CSS_SELECTOR, "input[name='keyword']")
+            search_input.clear()
+            search_input.send_keys(keyword)
+            search_input.send_keys(Keys.ENTER)
+            time.sleep(2)
+
+            current_url = driver.current_url
+            if current_url:
+                return current_url
+        except Exception as e:
+            print(f"Keyword URL resolution failed for '{keyword}': {e}")
+
+        return f"{self.jobs_list_url}?{urlencode({'keyword': keyword})}"
+
     def discover_job_urls(self) -> List[str]:
-        """Paginate through job search pages and collect job URLs"""
-        all_job_urls = []
-        if settings.force_full_crawl:
-            page = 1
-        else:
-            last_success_page = self.database.scrapes.get_last_success_page(self.source_site)
-            page = max(1, last_success_page + settings.resume_page_offset)
-        consecutive_errors = 0
+        """Discover keyword-filtered job URLs and return deduped list."""
+        all_job_urls: list[str] = []
+        keywords = self._get_keywords()
+
         max_consecutive_errors = 3
-        consecutive_seen_pages = 0
         max_consecutive_seen_pages = settings.max_consecutive_seen_pages
         seen_ratio_threshold = settings.seen_ratio_threshold
 
-        while True:
-            page_url = f"{self.jobs_list_url}?page={page}"
+        for keyword in keywords:
+            search_url = self._resolve_keyword_search_url(keyword)
+            label = keyword if keyword else "<all>"
+            page = 1
+            consecutive_errors = 0
+            consecutive_seen_pages = 0
+
             print(f"\n{'='*60}")
-            print(f"📄 Scraping page {page}: {page_url}")
+            print(f"Keyword search: {label}")
             print(f"{'='*60}")
 
-            try:
-                html, status_code = self.get_page_content(page_url)
-                
-                # Check if we got challenge page instead of content
-                if self._is_challenge_page(html):
-                    print(f"⚠️ Still on challenge page after timeout")
-                    consecutive_errors += 1
-                    
-                    if consecutive_errors >= max_consecutive_errors:
-                        print(f"❌ Too many challenge failures. Stopping.")
-                        break
-                    
-                    print(f"💤 Taking extended break (60-120 seconds)...")
-                    time.sleep(random.uniform(60, 120))
-                    continue
-                
-                # Simulate human behavior
-                self._scroll_page()
-                
-                # Save raw HTML
-                scrape_id = self.database.scrapes.save_raw_scrape(
-                    source_site=self.source_site,
-                    source_url=page_url,
-                    page_type="job_list", 
-                    scrape_session_id=self.session_id,
-                    raw_html=html,
-                    response_status=status_code
-                )
+            while True:
+                page_url = self._set_page(search_url, page)
+                print(f"\n{'='*60}")
+                print(f"Scraping page {page}: {page_url}")
+                print(f"{'='*60}")
 
-                # Check if we've reached the end
-                if self._is_no_results_page(html):
-                    print(f"✓ No more results found at page {page}")
-                    # Reset progress so next run starts at page 1
-                    self.database.scrapes.update_last_success_page(
-                        self.source_site, 0, self.session_id
-                    )
-                    break
+                try:
+                    html, status_code = self.get_page_content(page_url)
 
-                # Parse job URLs
-                page_job_urls = self._extract_job_urls_from_page(html)
-                
-                if len(page_job_urls) == 0:
-                    print(f"⚠️ No jobs found on page {page}")
-                    consecutive_errors += 1
-                    
-                    if consecutive_errors >= max_consecutive_errors:
-                        print(f"❌ No jobs for {max_consecutive_errors} consecutive pages. Stopping.")
-                        break
-                    
-                    time.sleep(random.uniform(30, 60))
-                    continue
-                
-                consecutive_errors = 0
-                all_job_urls.extend(page_job_urls)
-                print(f"✓ Found {len(page_job_urls)} jobs | Total: {len(all_job_urls)}")
+                    if self._is_challenge_page(html):
+                        print("Still on challenge page after timeout")
+                        consecutive_errors += 1
 
-                if max_consecutive_seen_pages > 0 and not settings.force_full_crawl:
-                    seen_count, total_count, seen_ratio = self._seen_ratio_on_page(page_job_urls)
-                    if total_count > 0 and seen_ratio >= seen_ratio_threshold:
-                        consecutive_seen_pages += 1
-                        print(f"Seen-only page streak: {consecutive_seen_pages}/{max_consecutive_seen_pages}")
-                        if consecutive_seen_pages >= max_consecutive_seen_pages:
-                            print("Too many consecutive seen-only pages. Stopping.")
+                        if consecutive_errors >= max_consecutive_errors:
+                            print("Too many challenge failures for this keyword. Moving on.")
                             break
-                    else:
-                        consecutive_seen_pages = 0
 
-                # Update progress after a successful page
-                self.database.scrapes.update_last_success_page(
-                    self.source_site, page, self.session_id
-                )
-                
-                # Longer delay between pages
-                delay = random.uniform(self.page_delay_min, self.page_delay_max)
-                print(f"💤 Waiting {delay:.1f} seconds before next page...")
-                time.sleep(delay)
-                page += 1
+                        print("Taking extended break (60-120 seconds)...")
+                        time.sleep(random.uniform(60, 120))
+                        continue
 
-            except Exception as e:
-                print(f"❌ Error scraping page {page}: {e}")
-                consecutive_errors += 1
-                
-                if consecutive_errors >= max_consecutive_errors:
-                    print(f"❌ Too many errors. Stopping.")
-                    break
-                
-                time.sleep(random.uniform(30, 60))
+                    self._scroll_page()
 
-        return all_job_urls
-    
+                    self.database.scrapes.save_raw_scrape(
+                        source_site=self.source_site,
+                        source_url=page_url,
+                        page_type="job_list",
+                        scrape_session_id=self.session_id,
+                        raw_html=html,
+                        response_status=status_code
+                    )
+
+                    if self._is_no_results_page(html):
+                        print(f"No more results for keyword '{label}' at page {page}")
+                        break
+
+                    page_job_urls = self._extract_job_urls_from_page(html)
+                    if len(page_job_urls) == 0:
+                        print(f"No jobs found on page {page} for keyword '{label}'")
+                        break
+
+                    consecutive_errors = 0
+                    all_job_urls.extend(page_job_urls)
+                    print(f"Found {len(page_job_urls)} jobs | Total: {len(all_job_urls)}")
+
+                    if max_consecutive_seen_pages > 0:
+                        seen_count, total_count, seen_ratio = self._seen_ratio_on_page(page_job_urls)
+                        if total_count > 0 and seen_ratio >= seen_ratio_threshold:
+                            consecutive_seen_pages += 1
+                            print(f"Seen-only page streak: {consecutive_seen_pages}/{max_consecutive_seen_pages}")
+                            if consecutive_seen_pages >= max_consecutive_seen_pages:
+                                print("Too many consecutive seen-only pages for this keyword. Moving on.")
+                                break
+                        else:
+                            consecutive_seen_pages = 0
+
+                    delay = random.uniform(self.page_delay_min, self.page_delay_max)
+                    print(f"Waiting {delay:.1f} seconds before next page...")
+                    time.sleep(delay)
+                    page += 1
+
+                except Exception as e:
+                    print(f"Error scraping page {page} for keyword '{label}': {e}")
+                    consecutive_errors += 1
+
+                    if consecutive_errors >= max_consecutive_errors:
+                        print("Too many errors for this keyword. Moving on.")
+                        break
+
+                    time.sleep(random.uniform(30, 60))
+
+        return list(dict.fromkeys(all_job_urls))
+
     def _is_challenge_page(self, html: str) -> bool:
         """Check if we're stuck on Arvan CDN challenge page"""
         challenge_indicators = [
             "error-section__subtitle--waiting",
             "Checking your browser before accessing",
-            "در حال بررسی مرورگر پیش از اتصال به سایت"
+            "Ø¯Ø± Ø­Ø§Ù„ Ø¨Ø±Ø±Ø³ÛŒ Ù…Ø±ÙˆØ±Ú¯Ø± Ù¾ÛŒØ´ Ø§Ø² Ø§ØªØµØ§Ù„ Ø¨Ù‡ Ø³Ø§ÛŒØª"
         ]
         return any(indicator in html for indicator in challenge_indicators)
     
     def _is_no_results_page(self, html: str) -> bool:
         """Check if page shows 'no jobs found' message"""
-        return "متاسفانه‌ برای فیلتر‌های اعمال شده نتیجه‌ای یافت نشد" in html
+        return "Ù…ØªØ§Ø³ÙØ§Ù†Ù‡â€Œ Ø¨Ø±Ø§ÛŒ ÙÛŒÙ„ØªØ±â€ŒÙ‡Ø§ÛŒ Ø§Ø¹Ù…Ø§Ù„ Ø´Ø¯Ù‡ Ù†ØªÛŒØ¬Ù‡â€ŒØ§ÛŒ ÛŒØ§ÙØª Ù†Ø´Ø¯" in html
     
     def _extract_job_urls_from_page(self, html: str) -> List[str]:
         """Extract job URLs from job listing page HTML"""
@@ -268,11 +287,11 @@ class JobinjaScraper(BaseScraper):
             self._random_delay(self.request_delay_min, self.request_delay_max)
             
             html, status_code = self.get_page_content(job_url)
-            print(f"📋 Scraping: {job_url}")
+            print(f"ðŸ“‹ Scraping: {job_url}")
             
             # Check for challenge page
             if self._is_challenge_page(html):
-                print(f"⚠️ Challenge page on job detail, taking break...")
+                print(f"âš ï¸ Challenge page on job detail, taking break...")
                 time.sleep(random.uniform(30, 60))
                 return None
             
@@ -320,7 +339,7 @@ class JobinjaScraper(BaseScraper):
             education_elem = soup.select_one('li.c-infoBox__item:has(h4:contains("Minimum educational qualification")) .tags span.black')
             if education_elem:
                 education_text = education_elem.get_text().strip()
-                education_level = 'none' if education_text == 'مهم‌ نیست' else education_text
+                education_level = 'none' if education_text == 'Ù…Ù‡Ù…â€Œ Ù†ÛŒØ³Øª' else education_text
             else:
                 education_level = 'unknown'
 
@@ -335,11 +354,11 @@ class JobinjaScraper(BaseScraper):
             gender_elem = soup.select_one('li.c-infoBox__item:has(h4:contains("Gender")) .tags span.black')
             if gender_elem:
                 gender_text = gender_elem.get_text().strip()
-                if gender_text in ['Woman', 'female', 'زن', 'خانم']:
+                if gender_text in ['Woman', 'female', 'Ø²Ù†', 'Ø®Ø§Ù†Ù…']:
                     gender_requirement = 'female'
-                elif gender_text in ['Man', 'male', 'مرد', 'آقا']:
+                elif gender_text in ['Man', 'male', 'Ù…Ø±Ø¯', 'Ø¢Ù‚Ø§']:
                     gender_requirement = 'male'
-                elif gender_text == 'مهم‌ نیست':
+                elif gender_text == 'Ù…Ù‡Ù…â€Œ Ù†ÛŒØ³Øª':
                     gender_requirement = 'any'
                 else:
                     gender_requirement = 'not_specified'
@@ -369,9 +388,15 @@ class JobinjaScraper(BaseScraper):
                 last_seen_date=today
             )
             
-            print(f"  ✓ Created JobPosting model for: {title}")
+            print(f"  âœ“ Created JobPosting model for: {title}")
             return job_posting
             
         except Exception as e:
-            print(f"❌ Error scraping {job_url}: {e}")
+            print(f"âŒ Error scraping {job_url}: {e}")
             return None
+
+
+
+
+
+

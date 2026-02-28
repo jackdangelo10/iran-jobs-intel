@@ -1,4 +1,4 @@
-# src/scrapers/irantalent/scraper.py
+﻿# src/scrapers/irantalent/scraper.py
 from __future__ import annotations
 from typing import List
 from src.scrapers.base.base_scraper import BaseScraper
@@ -6,8 +6,10 @@ from src.config.settings import settings
 from src.database.models import JobPosting
 from datetime import date
 import time
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from bs4 import BeautifulSoup
 from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support import expected_conditions as EC
 
 
@@ -40,94 +42,126 @@ class IranTalentScraper(BaseScraper):
         except:
             # If no job cards found, might be end of results
             pass
-    
-    def discover_job_urls(self) -> List[str]:
-        """Paginate through job search pages and collect job URLs"""
-        all_job_urls = []
-        if settings.force_full_crawl:
-            page = 1
-        else:
-            last_success_page = self.database.scrapes.get_last_success_page(self.source_site)
-            page = max(1, last_success_page + settings.resume_page_offset)
 
-        consecutive_errors = 0
+    def _get_keywords(self) -> list[str]:
+        if settings.water_focus_enabled:
+            return settings.irantalent_water_keywords_en or ["water"]
+        return [""]
+
+    def _set_page(self, url: str, page: int) -> str:
+        parsed = urlsplit(url)
+        query = dict(parse_qsl(parsed.query, keep_blank_values=True))
+        query["page"] = str(page)
+        return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, urlencode(query), parsed.fragment))
+
+    def _resolve_keyword_search_url(self, keyword: str) -> str:
+        base_url = f"{self.jobs_list_url}?language=english"
+        if not keyword:
+            return base_url
+
+        try:
+            driver = self._get_or_create_driver()
+            driver.get(base_url)
+            self._wait_for_page_load()
+
+            search_input = driver.find_element(By.CSS_SELECTOR, "input.advanced-search-placeholder")
+            driver.execute_script(
+                "arguments[0].removeAttribute('readonly'); arguments[0].value = '';",
+                search_input,
+            )
+            search_input.send_keys(keyword)
+            search_input.send_keys(Keys.ENTER)
+            time.sleep(2)
+
+            current_url = driver.current_url
+            if current_url:
+                return current_url
+        except Exception as e:
+            print(f"Keyword URL resolution failed for '{keyword}': {e}")
+
+        fallback_query = urlencode({"language": "english", "keyword": keyword})
+        return f"{self.jobs_list_url}?{fallback_query}"
+
+    def discover_job_urls(self) -> List[str]:
+        """Discover keyword-filtered job URLs and return deduped list."""
+        all_job_urls: list[str] = []
+        keywords = self._get_keywords()
+
         max_consecutive_errors = 3
-        consecutive_seen_pages = 0
         max_consecutive_seen_pages = settings.max_consecutive_seen_pages
         seen_ratio_threshold = settings.seen_ratio_threshold
 
-        while True:
-            page_url = f"{self.jobs_list_url}?language=english&page={page}"
-            print(f"Scraping page {page}: {page_url}")
-            try:
-                html, status_code = self.get_page_content(page_url)
-                print(f"Status Code: {status_code}")
-                if status_code != 200:
-                    print(f"Failed to retrieve page {page}")
+        for keyword in keywords:
+            search_url = self._resolve_keyword_search_url(keyword)
+            label = keyword if keyword else "<all>"
+            page = 1
+            consecutive_errors = 0
+            consecutive_seen_pages = 0
+
+            print(f"\nSearching IranTalent keyword: {label}")
+
+            while True:
+                page_url = self._set_page(search_url, page)
+                print(f"Scraping page {page}: {page_url}")
+                try:
+                    html, status_code = self.get_page_content(page_url)
+                    print(f"Status Code: {status_code}")
+                    if status_code != 200:
+                        print(f"Failed to retrieve page {page}")
+                        consecutive_errors += 1
+                        if consecutive_errors >= max_consecutive_errors:
+                            print("Too many errors for this keyword. Moving on.")
+                            break
+                        time.sleep(self.request_delay)
+                        continue
+
+                    self.database.scrapes.save_raw_scrape(
+                        source_site=self.source_site,
+                        source_url=page_url,
+                        page_type="job_list",
+                        scrape_session_id=self.session_id,
+                        raw_html=html,
+                        response_status=status_code
+                    )
+
+                    if self._is_no_results_page(html):
+                        print(f"No more results for keyword '{label}' at page {page}")
+                        break
+
+                    page_job_urls = self._extract_job_urls_from_page(html)
+                    if len(page_job_urls) == 0:
+                        print(f"No jobs found on page {page} for keyword '{label}'.")
+                        break
+
+                    all_job_urls.extend(page_job_urls)
+                    print(f"Found {len(page_job_urls)} jobs on page {page}")
+                    consecutive_errors = 0
+
+                    if max_consecutive_seen_pages > 0:
+                        seen_count, total_count, seen_ratio = self._seen_ratio_on_page(page_job_urls)
+                        if total_count > 0 and seen_ratio >= seen_ratio_threshold:
+                            consecutive_seen_pages += 1
+                            print(f"Seen-only page streak: {consecutive_seen_pages}/{max_consecutive_seen_pages}")
+                            if consecutive_seen_pages >= max_consecutive_seen_pages:
+                                print("Too many consecutive seen-only pages for this keyword. Moving on.")
+                                break
+                        else:
+                            consecutive_seen_pages = 0
+
+                    time.sleep(self.request_delay)
+                    page += 1
+
+                except Exception as e:
+                    print(f"Error scraping page {page} for keyword '{label}': {e}")
                     consecutive_errors += 1
                     if consecutive_errors >= max_consecutive_errors:
-                        print("Too many errors. Stopping.")
+                        print("Too many errors for this keyword. Moving on.")
                         break
                     time.sleep(self.request_delay)
                     continue
 
-                # Save raw HTML
-                scrape_id = self.database.scrapes.save_raw_scrape(
-                    source_site=self.source_site,
-                    source_url=page_url,
-                    page_type="job_list", 
-                    scrape_session_id=self.session_id,
-                    raw_html=html,
-                    response_status=status_code
-                )
+        return list(dict.fromkeys(all_job_urls))
 
-                # Check if we've reached the end
-                if self._is_no_results_page(html):
-                    print(f"No more results found at page {page}")
-                    # Reset progress so next run starts at page 1
-                    self.database.scrapes.update_last_success_page(
-                        self.source_site, 0, self.session_id
-                    )
-                    break
-
-                # Parse job URLs from this page
-                page_job_urls = self._extract_job_urls_from_page(html)
-                all_job_urls.extend(page_job_urls)
-
-                print(f"Found {len(page_job_urls)} jobs on page {page}")
-                consecutive_errors = 0
-
-                if max_consecutive_seen_pages > 0 and not settings.force_full_crawl:
-                    seen_count, total_count, seen_ratio = self._seen_ratio_on_page(page_job_urls)
-                    if total_count > 0 and seen_ratio >= seen_ratio_threshold:
-                        consecutive_seen_pages += 1
-                        print(f"Seen-only page streak: {consecutive_seen_pages}/{max_consecutive_seen_pages}")
-                        if consecutive_seen_pages >= max_consecutive_seen_pages:
-                            print("Too many consecutive seen-only pages. Stopping.")
-                            break
-                    else:
-                        consecutive_seen_pages = 0
-
-                # Update progress after a successful page
-                self.database.scrapes.update_last_success_page(
-                    self.source_site, page, self.session_id
-                )
-                
-                # Polite delay
-                time.sleep(self.request_delay)
-                page += 1
-
-            except Exception as e:
-                print(f"Error scraping page {page}: {e}")
-                consecutive_errors += 1
-                if consecutive_errors >= max_consecutive_errors:
-                    print("Too many errors. Stopping.")
-                    break
-                time.sleep(self.request_delay)
-                continue
-
-        return all_job_urls
-    
     def _is_no_results_page(self, html: str) -> bool:
         """Check if page shows 'no jobs found' message"""
         return "Your filtered search does not match any jobs" in html 
@@ -204,9 +238,9 @@ class IranTalentScraper(BaseScraper):
             title_text = (title or '').lower()
             description_text = (description or '').lower()
 
-            if '(female)' in title_text or (title and 'خانم' in title) or 'female' in description_text:
+            if '(female)' in title_text or (title and 'Ø®Ø§Ù†Ù…' in title) or 'female' in description_text:
                 gender_requirement = 'female'
-            elif '(male)' in title_text or (title and 'آقا' in title) or 'male' in description_text:
+            elif '(male)' in title_text or (title and 'Ø¢Ù‚Ø§' in title) or 'male' in description_text:
                 gender_requirement = 'male'
 
             # Create JobPosting model with validation
@@ -230,9 +264,17 @@ class IranTalentScraper(BaseScraper):
                 last_seen_date=today
             )
 
-            print(f"✅ Created JobPosting model for: {title}")
+            print(f"âœ… Created JobPosting model for: {title}")
             return job_posting
 
         except Exception as e:
             print(f"Error scraping job detail {job_url}: {e}")
             return None
+
+
+
+
+
+
+
+

@@ -1,4 +1,4 @@
-# src/config/settings.py
+﻿# src/config/settings.py
 """
 Application settings and configuration.
 Loads from environment variables (local) or GCP Secret Manager (cloud).
@@ -8,18 +8,27 @@ import os
 import sys
 from dataclasses import dataclass
 
+
+def _parse_keyword_list(env_var: str, default: list[str]) -> list[str]:
+    raw = os.getenv(env_var, "")
+    if not raw.strip():
+        return default
+    items = [part.strip() for part in raw.split(",")]
+    return [item for item in items if item]
+
+
 @dataclass
 class Settings:
     """Application configuration settings."""
-    
+
     # Environment
     environment: str  # 'development' or 'production'
     is_cloud_run: bool
     gcp_project_id: str | None
-    
+
     # Database
     database_url: str
-    
+
     # Scraping configuration
     request_delay_seconds: int = 2
     max_retries: int = 3
@@ -30,27 +39,34 @@ class Settings:
     seen_ratio_threshold: float = 1.0
     resume_page_offset: int = -1
     force_full_crawl: bool = False
-    
+
+    # Narrow-topic crawl controls
+    water_focus_enabled: bool = True
+    irantalent_water_keywords_en: list[str] | None = None
+    jobinja_water_keywords_fa: list[str] | None = None
+    jobvision_water_keywords_fa: list[str] | None = None
+
     # Selenium configuration
     headless: bool = True
     page_load_timeout: int = 90
 
+
 def load_settings() -> Settings:
     """
     Load application settings with environment auto-detection.
-    
+
     Environment Detection:
     - Cloud Run: K_SERVICE environment variable is set
     - Local: K_SERVICE is not set
-    
+
     Configuration Loading Priority:
     1. Cloud Run: GCP Secret Manager
     2. Local: .env file
     3. Fallback: Environment variables
-    
+
     Returns:
         Settings: Loaded configuration
-        
+
     Raises:
         ValueError: If required settings are missing
     """
@@ -86,6 +102,20 @@ def load_settings() -> Settings:
     resume_page_offset = int(os.getenv('SCRAPER_RESUME_PAGE_OFFSET', '-1'))
     force_full_crawl = os.getenv('SCRAPER_FORCE_FULL_CRAWL', 'false').lower() == 'true'
 
+    water_focus_enabled = os.getenv('SCRAPER_WATER_FOCUS_ENABLED', 'true').lower() == 'true'
+    irantalent_water_keywords_en = _parse_keyword_list(
+        'IRANTALENT_WATER_KEYWORDS_EN',
+        ['water', 'water treatment', 'wastewater'],
+    )
+    jobinja_water_keywords_fa = _parse_keyword_list(
+        'JOBINJA_WATER_KEYWORDS_FA',
+        ['آب', 'تصفیه آب', 'فاضلاب'],
+    )
+    jobvision_water_keywords_fa = _parse_keyword_list(
+        'JOBVISION_WATER_KEYWORDS_FA',
+        ['آب', 'تصفیه آب', 'فاضلاب'],
+    )
+
     return Settings(
         environment=environment,
         is_cloud_run=is_cloud_run,
@@ -98,21 +128,25 @@ def load_settings() -> Settings:
         max_consecutive_seen_pages=max_consecutive_seen_pages,
         seen_ratio_threshold=seen_ratio_threshold,
         resume_page_offset=resume_page_offset,
-        force_full_crawl=force_full_crawl
+        force_full_crawl=force_full_crawl,
+        water_focus_enabled=water_focus_enabled,
+        irantalent_water_keywords_en=irantalent_water_keywords_en,
+        jobinja_water_keywords_fa=jobinja_water_keywords_fa,
+        jobvision_water_keywords_fa=jobvision_water_keywords_fa,
     )
 
 
 def _load_database_url(is_cloud_run: bool, gcp_project_id: str | None) -> str:
     """
     Load database URL based on environment.
-    
+
     Args:
         is_cloud_run: Whether running in Cloud Run
         gcp_project_id: GCP project ID (required for Cloud Run)
-        
+
     Returns:
         Database connection URL
-        
+
     Raises:
         ValueError: If database URL cannot be loaded
     """
@@ -123,14 +157,14 @@ def _load_database_url(is_cloud_run: bool, gcp_project_id: str | None) -> str:
     if is_cloud_run:
         # Cloud Run: Must use Secret Manager
         print("📡 Loading DATABASE_URL from GCP Secret Manager...")
-        
+
         if not gcp_project_id:
             raise ValueError(
                 "GCP_PROJECT or GOOGLE_CLOUD_PROJECT environment variable must be set in Cloud Run"
             )
-        
+
         from src.utils.secrets import get_secret
-        
+
         try:
             database_url = get_secret("IRAN_JOBS_SCRAPER_DATABASE_URL", project_id=gcp_project_id)
             if isinstance(database_url, str):
@@ -139,28 +173,27 @@ def _load_database_url(is_cloud_run: bool, gcp_project_id: str | None) -> str:
             return database_url
         except Exception as e:
             raise ValueError(f"Failed to load database URL from Secret Manager: {e}")
-    
+
     else:
         # Local development: Try .env file first
         print("📁 Loading DATABASE_URL from .env file...")
-        
+
         from dotenv import load_dotenv
         load_dotenv()
-        
+
         database_url = os.getenv('IRAN_JOBS_SCRAPER_DATABASE_URL')
         if isinstance(database_url, str):
             database_url = database_url.strip()
-        
+
         if not database_url:
             raise ValueError(
                 "IRAN_JOBS_SCRAPER_DATABASE_URL not found in .env file. "
                 "Create a .env file with: IRAN_JOBS_SCRAPER_DATABASE_URL=postgresql://..."
             )
-        
+
         print("✅ Database URL loaded from .env")
         return database_url
 
 
 # Global settings instance - loaded once on import
 settings = load_settings()
-
