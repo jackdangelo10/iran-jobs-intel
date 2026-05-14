@@ -107,7 +107,8 @@ All three jobs share a single Docker image (`Dockerfile`) and route via `python 
 │       ├── 002_update_scraper_role_password.sql
 │       ├── 003_allow_scraper_rls.sql
 │       ├── 004_scrape_progress.sql
-│       └── 005_reset_all_data.sql    # ran on water pivot
+│       ├── 005_reset_all_data.sql              # ran on water pivot
+│       └── 006_drop_aspirational_columns.sql   # schema trim — see below
 │
 ├── dashboard/                    # Next.js 14 app (Vercel root directory)
 │   ├── src/app/
@@ -127,17 +128,16 @@ All three jobs share a single Docker image (`Dockerfile`) and route via `python 
 
 ## Database schema
 
-PostgreSQL `public` schema on Supabase. 14 tables total:
+PostgreSQL `public` schema on Supabase. 13 tables. Trimmed in migration 006 to remove aspirational fields no code populated; what remains is what the pipeline actually reads or writes.
 
 **Core entities**
-- `job_postings` — one row per (source_site, external_id); tracks title, company, location, employment type, experience level, salary (original + IRR + USD), and lifecycle (`first_seen_date`, `last_seen_date`, `is_active`, `deactivated_date`).
-- `companies` — canonical employer records with name variations, risk/sanction flags, hiring metrics (`active_job_postings`, `hiring_velocity_30d`).
-- `locations` — Iranian admin hierarchy (province / city / district) in Persian + English, plus economic zone classification.
-- `skills` — canonical skill dictionary with EN/FA aliases, category, dual-use flagging, strategic-importance rating.
+- `job_postings` — one row per `(source_site, external_id)`. Title (FA + EN translation), company/location refs, employment type, experience level, gender/education (scraped, not yet surfaced), salary in original currency, and lifecycle (`first_seen_date`, `last_seen_date`, `is_active`, `deactivated_date`).
+- `companies` — canonical employer record with `display_name_persian` + `canonical_name`. Hiring metrics refreshed by `analytics_job`: `total_job_postings`, `active_job_postings`, `hiring_velocity_30d`.
+- `locations` — minimal: `city_persian`, `location_normalized` (lowercased dedup key), `location_type`. No province/coords yet.
+- `skills` — canonical skill name + category (one of `language` / `framework` / `database` / `cloud` / `tool` / `methodology` / `soft` / `certification` / `domain_knowledge`). Populated from `JobProcessor.SKILL_PATTERNS`.
 
-**Join tables**
-- `job_skills` — extracted skills per posting with requirement type and confidence.
-- `company_locations` — multi-office company presence.
+**Join table**
+- `job_skills` — `(job_posting_id, skill_id)` with `requirement_type`, `proficiency_level`, `confidence_score`, `extraction_method`.
 
 **Scraping infrastructure**
 - `raw_scrapes` — raw HTML store with content hash + processing status.
@@ -149,6 +149,8 @@ PostgreSQL `public` schema on Supabase. 14 tables total:
 - `processing_logs` — structured event log across all three job types.
 
 Key invariant: `job_postings` has `UNIQUE(source_site, external_id)` and all writes go through `ON CONFLICT (...) DO UPDATE`, so re-scraping the same URL refreshes the row instead of duplicating it.
+
+**Schema trim (migration 006).** ~50 columns were dropped across `job_postings`, `companies`, `locations`, `skills`, `job_skills`, `processing_logs`, and `translation_cache`, plus the entirely unused `company_locations` table. Notable removals: sanctions/risk fields on companies, latitude/longitude on locations, IRR↔USD salary conversion fields, hand-tuned `data_quality_score` + `processing_confidence` heuristics, and the dead `dual_use` / `strategic_importance` skill flags. These can be re-added cleanly when there's actual code to populate them.
 
 ---
 
@@ -184,8 +186,8 @@ For each pending row in `raw_scrapes`:
    - Persian numerals → ASCII for salary parsing.
 4. Parse salary range from text (handles "از X تا Y تومان" patterns and single-amount "X تومان ماهیانه").
 5. Upsert into `companies` (by canonical name) and `locations` (by normalized form).
-6. Match against **135 canonical skills** with EN + FA pattern lists (`JobProcessor.SKILL_PATTERNS`) — covers languages, frameworks, databases, cloud platforms, methodologies.
-7. Insert `job_skills` rows with `confidence_score` and `extraction_method='keyword_match'`.
+6. Match against **135 canonical skills** with EN + FA pattern lists (`JobProcessor.SKILL_PATTERNS`). Each entry carries a category so newly-inserted `skills` rows are written with the correct `skill_category` (24 languages, 34 frameworks, 13 databases, 4 cloud platforms, 42 tools, 4 methodologies, 14 domain-knowledge).
+7. Insert `job_skills` rows with `confidence_score=0.7` and `extraction_method='keyword_match'`.
 
 ### 3. Analytics (`src/runners/analytics_job.py` + `src/analytics/engine.py`)
 
@@ -217,7 +219,7 @@ DB access goes through a lazy `getDb()` singleton in `src/lib/db.ts` using the `
 
 | Component                | Status   | Notes                                                       |
 |--------------------------|----------|-------------------------------------------------------------|
-| Database schema          | Done     | 14 tables, 5 migrations applied                             |
+| Database schema          | Done     | 13 tables, 6 migrations applied (006 trims aspirational columns) |
 | IranTalent scraper       | Done     | Water keyword filtered (EN)                                  |
 | Jobinja scraper          | Done     | Water keyword filtered (FA)                                  |
 | JobVision scraper        | Done     | Water keyword filtered (FA)                                  |
@@ -354,8 +356,3 @@ Jobs are triggered nightly via Cloud Scheduler (scraper → processor → analyt
 - **`source_site` is always lowercase** (`irantalent`, `jobinja`, `jobvision`) to match the `CHECK` constraint.
 - **Migration `005_reset_all_data.sql`** wiped pre-pivot broad-market data when the water focus shipped.
 
----
-
-## License
-
-Private / unreleased.

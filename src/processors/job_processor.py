@@ -20,6 +20,10 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 _FA_DIGIT = str.maketrans("۰۱۲۳۴۵۶۷۸۹", "0123456789")
 
+# Default category used when a skill comes in from the scraper sidecar
+# (skills_required_json) but isn't in SKILL_PATTERNS.
+_DEFAULT_SKILL_CATEGORY = "domain_knowledge"
+
 
 @dataclass
 class ProcessorStats:
@@ -49,169 +53,174 @@ class JobProcessor:
     """Full processing pipeline for pending job postings."""
 
     # ------------------------------------------------------------------
-    # Comprehensive skill dictionary (canonical → list of match strings)
+    # Comprehensive skill dictionary.
+    # Each entry is canonical_name -> (category, [match strings, EN + FA]).
+    # Categories: language | framework | database | cloud | tool |
+    #             methodology | soft | certification | domain_knowledge
     # ------------------------------------------------------------------
-    SKILL_PATTERNS: dict[str, list[str]] = {
-        # ── Languages ──────────────────────────────────────────────────
-        "Python":           ["python", "پایتون"],
-        "JavaScript":       ["javascript", "js", "جاوااسکریپت"],
-        "TypeScript":       ["typescript", "ts", "تایپ‌اسکریپت", "تایپ اسکریپت"],
-        "Java":             ["java", "جاوا"],
-        "C#":               ["c#", "csharp", "c sharp", "سی‌شارپ", "سی شارپ"],
-        "C++":              ["c++", "cpp", "سی‌پلاس‌پلاس"],
-        "C":                [" c ", "language c", "زبان c"],
-        "Go":               ["golang", " go ", "گولنگ"],
-        "Rust":             ["rust", "راست"],
-        "PHP":              ["php"],
-        "Ruby":             ["ruby", "روبی"],
-        "Swift":            ["swift"],
-        "Kotlin":           ["kotlin"],
-        "Scala":            ["scala"],
-        "R":                [" r ", "r programming", "r language", "آر"],
-        "MATLAB":           ["matlab", "متلب"],
-        "Dart":             ["dart", "flutter/dart"],
-        "Shell":            ["bash", "shell script", "powershell", "bash scripting"],
-        "Perl":             ["perl"],
-        "VBA":              ["vba", "visual basic"],
-        "Assembly":         ["assembly", "asm", "اسمبلی"],
+    SKILL_PATTERNS: dict[str, tuple[str, list[str]]] = {
+        # ── Programming languages ───────────────────────────────────────
+        "Python":           ("language",         ["python", "پایتون"]),
+        "JavaScript":       ("language",         ["javascript", "js", "جاوااسکریپت"]),
+        "TypeScript":       ("language",         ["typescript", "ts", "تایپ‌اسکریپت", "تایپ اسکریپت"]),
+        "Java":             ("language",         ["java", "جاوا"]),
+        "C#":               ("language",         ["c#", "csharp", "c sharp", "سی‌شارپ", "سی شارپ"]),
+        "C++":              ("language",         ["c++", "cpp", "سی‌پلاس‌پلاس"]),
+        "C":                ("language",         [" c ", "language c", "زبان c"]),
+        "Go":               ("language",         ["golang", " go ", "گولنگ"]),
+        "Rust":             ("language",         ["rust", "راست"]),
+        "PHP":              ("language",         ["php"]),
+        "Ruby":             ("language",         ["ruby", "روبی"]),
+        "Swift":            ("language",         ["swift"]),
+        "Kotlin":           ("language",         ["kotlin"]),
+        "Scala":            ("language",         ["scala"]),
+        "R":                ("language",         [" r ", "r programming", "r language", "آر"]),
+        "MATLAB":           ("language",         ["matlab", "متلب"]),
+        "Dart":             ("language",         ["dart", "flutter/dart"]),
+        "Shell":            ("language",         ["bash", "shell script", "powershell", "bash scripting"]),
+        "Perl":             ("language",         ["perl"]),
+        "VBA":              ("language",         ["vba", "visual basic"]),
+        "Assembly":         ("language",         ["assembly", "asm", "اسمبلی"]),
+        "HTML":             ("language",         ["html", "html5"]),
+        "CSS":              ("language",         ["css", "css3"]),
+        "SQL":              ("language",         [" sql ", "sql query", "sql queries", "اس‌کیو‌ال"]),
 
-        # ── Web Front-end ───────────────────────────────────────────────
-        "HTML":             ["html", "html5"],
-        "CSS":              ["css", "css3"],
-        "React":            ["react", "reactjs", "react.js", "ری‌اکت", "ری اکت"],
-        "Vue.js":           ["vue", "vuejs", "vue.js", "ویو"],
-        "Angular":          ["angular", "angularjs", "انگولار"],
-        "Next.js":          ["next.js", "nextjs"],
-        "Nuxt.js":          ["nuxt.js", "nuxtjs"],
-        "Svelte":           ["svelte"],
-        "jQuery":           ["jquery"],
-        "Bootstrap":        ["bootstrap"],
-        "Tailwind CSS":     ["tailwind", "tailwindcss"],
-        "Webpack":          ["webpack"],
-        "Vite":             ["vite"],
+        # ── Web front-end frameworks ────────────────────────────────────
+        "React":            ("framework",        ["react", "reactjs", "react.js", "ری‌اکت", "ری اکت"]),
+        "Vue.js":           ("framework",        ["vue", "vuejs", "vue.js", "ویو"]),
+        "Angular":          ("framework",        ["angular", "angularjs", "انگولار"]),
+        "Next.js":          ("framework",        ["next.js", "nextjs"]),
+        "Nuxt.js":          ("framework",        ["nuxt.js", "nuxtjs"]),
+        "Svelte":           ("framework",        ["svelte"]),
+        "jQuery":           ("framework",        ["jquery"]),
+        "Bootstrap":        ("framework",        ["bootstrap"]),
+        "Tailwind CSS":     ("framework",        ["tailwind", "tailwindcss"]),
 
-        # ── Web Back-end ────────────────────────────────────────────────
-        "Node.js":          ["node.js", "nodejs", "node js"],
-        "Express.js":       ["express.js", "expressjs", "express js"],
-        "Django":           ["django", "جنگو"],
-        "Flask":            ["flask"],
-        "FastAPI":          ["fastapi", "fast api"],
-        "Spring Boot":      ["spring boot", "spring", "springframework"],
-        "Laravel":          ["laravel"],
-        "Rails":            ["rails", "ruby on rails"],
-        "ASP.NET":          ["asp.net", "aspnet", ".net", "dotnet"],
-        "NestJS":           ["nestjs", "nest.js"],
+        # ── Web build tooling ───────────────────────────────────────────
+        "Webpack":          ("tool",             ["webpack"]),
+        "Vite":             ("tool",             ["vite"]),
+
+        # ── Web back-end frameworks ─────────────────────────────────────
+        "Node.js":          ("framework",        ["node.js", "nodejs", "node js"]),
+        "Express.js":       ("framework",        ["express.js", "expressjs", "express js"]),
+        "Django":           ("framework",        ["django", "جنگو"]),
+        "Flask":            ("framework",        ["flask"]),
+        "FastAPI":          ("framework",        ["fastapi", "fast api"]),
+        "Spring Boot":      ("framework",        ["spring boot", "spring", "springframework"]),
+        "Laravel":          ("framework",        ["laravel"]),
+        "Rails":            ("framework",        ["rails", "ruby on rails"]),
+        "ASP.NET":          ("framework",        ["asp.net", "aspnet", ".net", "dotnet"]),
+        "NestJS":           ("framework",        ["nestjs", "nest.js"]),
 
         # ── Mobile ──────────────────────────────────────────────────────
-        "React Native":     ["react native"],
-        "Flutter":          ["flutter"],
-        "Android":          ["android"],
-        "iOS":              ["ios", "xcode"],
+        "React Native":     ("framework",        ["react native"]),
+        "Flutter":          ("framework",        ["flutter"]),
+        "Android":          ("domain_knowledge", ["android"]),
+        "iOS":              ("domain_knowledge", ["ios", "xcode"]),
 
         # ── Databases ───────────────────────────────────────────────────
-        "SQL":              [" sql ", "sql query", "sql queries", "اس‌کیو‌ال"],
-        "PostgreSQL":       ["postgresql", "postgres"],
-        "MySQL":            ["mysql"],
-        "SQLite":           ["sqlite"],
-        "SQL Server":       ["sql server", "mssql", "t-sql"],
-        "Oracle":           ["oracle database", "oracle db", "pl/sql", "plsql"],
-        "MongoDB":          ["mongodb", "mongo"],
-        "Redis":            ["redis"],
-        "Elasticsearch":    ["elasticsearch", "elastic search"],
-        "Cassandra":        ["cassandra"],
-        "ClickHouse":       ["clickhouse", "click house"],
-        "DynamoDB":         ["dynamodb"],
-        "Neo4j":            ["neo4j", "graph database"],
-        "InfluxDB":         ["influxdb"],
+        "PostgreSQL":       ("database",         ["postgresql", "postgres"]),
+        "MySQL":            ("database",         ["mysql"]),
+        "SQLite":           ("database",         ["sqlite"]),
+        "SQL Server":       ("database",         ["sql server", "mssql", "t-sql"]),
+        "Oracle":           ("database",         ["oracle database", "oracle db", "pl/sql", "plsql"]),
+        "MongoDB":          ("database",         ["mongodb", "mongo"]),
+        "Redis":            ("database",         ["redis"]),
+        "Elasticsearch":    ("database",         ["elasticsearch", "elastic search"]),
+        "Cassandra":        ("database",         ["cassandra"]),
+        "ClickHouse":       ("database",         ["clickhouse", "click house"]),
+        "DynamoDB":         ("database",         ["dynamodb"]),
+        "Neo4j":            ("database",         ["neo4j", "graph database"]),
+        "InfluxDB":         ("database",         ["influxdb"]),
 
-        # ── Messaging / Queues ──────────────────────────────────────────
-        "Kafka":            ["kafka", "apache kafka"],
-        "RabbitMQ":         ["rabbitmq", "rabbit mq"],
-        "Celery":           ["celery"],
-        "NATS":             ["nats"],
-        "ZeroMQ":           ["zeromq", "zmq"],
+        # ── Messaging / queues ──────────────────────────────────────────
+        "Kafka":            ("tool",             ["kafka", "apache kafka"]),
+        "RabbitMQ":         ("tool",             ["rabbitmq", "rabbit mq"]),
+        "Celery":           ("tool",             ["celery"]),
+        "NATS":             ("tool",             ["nats"]),
+        "ZeroMQ":           ("tool",             ["zeromq", "zmq"]),
 
-        # ── DevOps / Infra ──────────────────────────────────────────────
-        "Docker":           ["docker", "داکر"],
-        "Kubernetes":       ["kubernetes", "k8s", "کوبرنتیز"],
-        "Linux":            ["linux", "ubuntu", "centos", "debian", "لینوکس"],
-        "Git":              ["git", "گیت"],
-        "GitHub":           ["github"],
-        "GitLab":           ["gitlab"],
-        "CI/CD":            ["ci/cd", "cicd", "continuous integration", "continuous delivery"],
-        "Jenkins":          ["jenkins"],
-        "GitHub Actions":   ["github actions"],
-        "GitLab CI":        ["gitlab ci", "gitlab-ci"],
-        "Terraform":        ["terraform"],
-        "Ansible":          ["ansible"],
-        "Helm":             ["helm chart", " helm "],
-        "Nginx":            ["nginx"],
-        "Apache":           ["apache httpd", "apache server"],
-        "Prometheus":       ["prometheus"],
-        "Grafana":          ["grafana"],
-        "ELK Stack":        ["elk stack", "kibana", "logstash"],
-        "Vault":            ["hashicorp vault"],
+        # ── DevOps / infra ──────────────────────────────────────────────
+        "Docker":           ("tool",             ["docker", "داکر"]),
+        "Kubernetes":       ("tool",             ["kubernetes", "k8s", "کوبرنتیز"]),
+        "Linux":            ("tool",             ["linux", "ubuntu", "centos", "debian", "لینوکس"]),
+        "Git":              ("tool",             ["git", "گیت"]),
+        "GitHub":           ("tool",             ["github"]),
+        "GitLab":           ("tool",             ["gitlab"]),
+        "CI/CD":            ("methodology",      ["ci/cd", "cicd", "continuous integration", "continuous delivery"]),
+        "Jenkins":          ("tool",             ["jenkins"]),
+        "GitHub Actions":   ("tool",             ["github actions"]),
+        "GitLab CI":        ("tool",             ["gitlab ci", "gitlab-ci"]),
+        "Terraform":        ("tool",             ["terraform"]),
+        "Ansible":          ("tool",             ["ansible"]),
+        "Helm":             ("tool",             ["helm chart", " helm "]),
+        "Nginx":            ("tool",             ["nginx"]),
+        "Apache":           ("tool",             ["apache httpd", "apache server"]),
+        "Prometheus":       ("tool",             ["prometheus"]),
+        "Grafana":          ("tool",             ["grafana"]),
+        "ELK Stack":        ("tool",             ["elk stack", "kibana", "logstash"]),
+        "Vault":            ("tool",             ["hashicorp vault"]),
 
-        # ── Cloud ───────────────────────────────────────────────────────
-        "AWS":              ["aws", "amazon web services"],
-        "GCP":              ["gcp", "google cloud", "google cloud platform"],
-        "Azure":            ["azure", "microsoft azure"],
-        "DigitalOcean":     ["digitalocean", "digital ocean"],
+        # ── Cloud platforms ─────────────────────────────────────────────
+        "AWS":              ("cloud",            ["aws", "amazon web services"]),
+        "GCP":              ("cloud",            ["gcp", "google cloud", "google cloud platform"]),
+        "Azure":            ("cloud",            ["azure", "microsoft azure"]),
+        "DigitalOcean":     ("cloud",            ["digitalocean", "digital ocean"]),
 
-        # ── ML / AI / Data ──────────────────────────────────────────────
-        "Machine Learning": ["machine learning", "ml ", "یادگیری ماشین"],
-        "Deep Learning":    ["deep learning", "یادگیری عمیق"],
-        "NLP":              ["nlp", "natural language processing", "پردازش زبان"],
-        "Computer Vision":  ["computer vision", "بینایی ماشین"],
-        "TensorFlow":       ["tensorflow", "tf2"],
-        "PyTorch":          ["pytorch", "torch"],
-        "Keras":            ["keras"],
-        "Scikit-learn":     ["scikit-learn", "sklearn"],
-        "Pandas":           ["pandas", "پانداس"],
-        "NumPy":            ["numpy"],
-        "SciPy":            ["scipy"],
-        "OpenCV":           ["opencv", "open cv"],
-        "Hugging Face":     ["hugging face", "huggingface", "transformers"],
-        "XGBoost":          ["xgboost"],
-        "LightGBM":         ["lightgbm"],
-        "Data Analysis":    ["data analysis", "تحلیل داده", "data analytics"],
-        "Data Engineering": ["data engineering", "data pipeline", "etl", "مهندسی داده"],
-        "Spark":            ["apache spark", "pyspark"],
-        "Hadoop":           ["hadoop", "hdfs"],
-        "Airflow":          ["airflow", "apache airflow"],
-        "dbt":              [" dbt ", "data build tool"],
+        # ── ML / AI / data libraries ────────────────────────────────────
+        "Machine Learning": ("domain_knowledge", ["machine learning", "ml ", "یادگیری ماشین"]),
+        "Deep Learning":    ("domain_knowledge", ["deep learning", "یادگیری عمیق"]),
+        "NLP":              ("domain_knowledge", ["nlp", "natural language processing", "پردازش زبان"]),
+        "Computer Vision":  ("domain_knowledge", ["computer vision", "بینایی ماشین"]),
+        "TensorFlow":       ("framework",        ["tensorflow", "tf2"]),
+        "PyTorch":          ("framework",        ["pytorch", "torch"]),
+        "Keras":            ("framework",        ["keras"]),
+        "Scikit-learn":     ("framework",        ["scikit-learn", "sklearn"]),
+        "Pandas":           ("framework",        ["pandas", "پانداس"]),
+        "NumPy":            ("framework",        ["numpy"]),
+        "SciPy":            ("framework",        ["scipy"]),
+        "OpenCV":           ("framework",        ["opencv", "open cv"]),
+        "Hugging Face":     ("framework",        ["hugging face", "huggingface", "transformers"]),
+        "XGBoost":          ("framework",        ["xgboost"]),
+        "LightGBM":         ("framework",        ["lightgbm"]),
+        "Data Analysis":    ("domain_knowledge", ["data analysis", "تحلیل داده", "data analytics"]),
+        "Data Engineering": ("domain_knowledge", ["data engineering", "data pipeline", "etl", "مهندسی داده"]),
+        "Spark":            ("tool",             ["apache spark", "pyspark"]),
+        "Hadoop":           ("tool",             ["hadoop", "hdfs"]),
+        "Airflow":          ("tool",             ["airflow", "apache airflow"]),
+        "dbt":              ("tool",             [" dbt ", "data build tool"]),
 
-        # ── BI / Visualization ──────────────────────────────────────────
-        "Power BI":         ["power bi", "powerbi"],
-        "Tableau":          ["tableau"],
-        "Looker":           ["looker"],
-        "Excel":            ["excel", "اکسل"],
-        "SPSS":             ["spss"],
+        # ── BI / visualization ──────────────────────────────────────────
+        "Power BI":         ("tool",             ["power bi", "powerbi"]),
+        "Tableau":          ("tool",             ["tableau"]),
+        "Looker":           ("tool",             ["looker"]),
+        "Excel":            ("tool",             ["excel", "اکسل"]),
+        "SPSS":             ("tool",             ["spss"]),
 
-        # ── API / Architecture ──────────────────────────────────────────
-        "REST API":         ["rest api", "restful", "rest ful"],
-        "GraphQL":          ["graphql"],
-        "gRPC":             ["grpc"],
-        "WebSocket":        ["websocket", "web socket"],
-        "Microservices":    ["microservices", "microservice", "میکروسرویس"],
-        "OAuth":            ["oauth", "oauth2"],
-        "JWT":              ["jwt", "json web token"],
+        # ── API / architecture ──────────────────────────────────────────
+        "REST API":         ("domain_knowledge", ["rest api", "restful", "rest ful"]),
+        "GraphQL":          ("framework",        ["graphql"]),
+        "gRPC":             ("framework",        ["grpc"]),
+        "WebSocket":        ("domain_knowledge", ["websocket", "web socket"]),
+        "Microservices":    ("methodology",      ["microservices", "microservice", "میکروسرویس"]),
+        "OAuth":            ("domain_knowledge", ["oauth", "oauth2"]),
+        "JWT":              ("domain_knowledge", ["jwt", "json web token"]),
 
-        # ── Methodology ─────────────────────────────────────────────────
-        "Agile":            ["agile", "اجایل"],
-        "Scrum":            ["scrum", "اسکرام"],
-        "Jira":             ["jira"],
-        "Figma":            ["figma"],
+        # ── Methodology / process tools ─────────────────────────────────
+        "Agile":            ("methodology",      ["agile", "اجایل"]),
+        "Scrum":            ("methodology",      ["scrum", "اسکرام"]),
+        "Jira":             ("tool",             ["jira"]),
+        "Figma":            ("tool",             ["figma"]),
 
-        # ── Other / Domain ──────────────────────────────────────────────
-        "Blockchain":       ["blockchain", "بلاک‌چین", "solidity", "web3"],
-        "Unity":            ["unity3d", "unity engine", " unity "],
-        "Unreal Engine":    ["unreal engine", "unreal"],
-        "AutoCAD":          ["autocad"],
-        "SAP":              ["sap erp", " sap "],
-        "Photoshop":        ["photoshop"],
-        "SEO":              [" seo ", "search engine optimization"],
-        "WordPress":        ["wordpress"],
+        # ── Domain / other ──────────────────────────────────────────────
+        "Blockchain":       ("domain_knowledge", ["blockchain", "بلاک‌چین", "solidity", "web3"]),
+        "Unity":            ("tool",             ["unity3d", "unity engine", " unity "]),
+        "Unreal Engine":    ("tool",             ["unreal engine", "unreal"]),
+        "AutoCAD":          ("tool",             ["autocad"]),
+        "SAP":              ("tool",             ["sap erp", " sap "]),
+        "Photoshop":        ("tool",             ["photoshop"]),
+        "SEO":              ("domain_knowledge", [" seo ", "search engine optimization"]),
+        "WordPress":        ("tool",             ["wordpress"]),
     }
 
     # ------------------------------------------------------------------
@@ -379,14 +388,6 @@ class JobProcessor:
                     self._upsert_job_skills(job_id, skill_ids)
                     stats.skills_linked += len(skill_ids)
 
-                quality = self._compute_data_quality(
-                    title_en=title_en,
-                    desc_en=desc_en,
-                    company_id=company_id,
-                    location_id=location_id,
-                    skill_count=len(skill_ids),
-                )
-
                 self._mark_job_processed(
                     job_id=job_id,
                     title_en=title_en,
@@ -395,7 +396,6 @@ class JobProcessor:
                     company_id=company_id,
                     location_id=location_id,
                     skills=skills,
-                    quality=quality,
                     employment_type=emp_type,
                     experience_level=exp_level,
                     salary_min=salary_min,
@@ -480,9 +480,9 @@ class JobProcessor:
             INSERT INTO translation_cache (
                 source_text_hash, source_text, source_language, target_language,
                 translated_text, translation_service, translation_confidence,
-                created_at, last_used_at, usage_count, is_verified, needs_review
+                created_at, last_used_at, usage_count
             )
-            VALUES (%s, %s, 'fa', 'en', %s, 'google', %s, NOW(), NOW(), 1, FALSE, FALSE)
+            VALUES (%s, %s, 'fa', 'en', %s, 'google', %s, NOW(), NOW(), 1)
             ON CONFLICT (source_text_hash) DO UPDATE
             SET translated_text = COALESCE(translation_cache.translated_text,
                                             EXCLUDED.translated_text),
@@ -570,6 +570,7 @@ class JobProcessor:
     def _upsert_skills(self, skill_names: list[str]) -> list[int]:
         skill_ids: list[int] = []
         for skill_name in skill_names:
+            category = self._skill_category(skill_name)
             existing = self.conn.fetchone(
                 "SELECT id FROM skills WHERE skill_name_english = %s",
                 (skill_name,),
@@ -593,10 +594,10 @@ class JobProcessor:
                     INSERT INTO skills (
                         skill_name_english, skill_category, first_seen_date, last_seen_date, is_active
                     )
-                    VALUES (%s, 'technical', CURRENT_DATE, CURRENT_DATE, TRUE)
+                    VALUES (%s, %s, CURRENT_DATE, CURRENT_DATE, TRUE)
                     RETURNING id
                     """,
-                    (skill_name,),
+                    (skill_name, category),
                 )
                 skill_ids.append(skill_id)
             except Exception:
@@ -614,13 +615,12 @@ class JobProcessor:
                 """
                 INSERT INTO job_skills (
                     job_posting_id, skill_id, requirement_type, proficiency_level,
-                    confidence_score, extraction_method, verified, needs_review, created_at
+                    confidence_score, extraction_method, created_at
                 )
-                VALUES (%s, %s, 'mentioned', 'unknown', 0.7, 'keyword_match', FALSE, FALSE, NOW())
+                VALUES (%s, %s, 'mentioned', 'unknown', 0.7, 'keyword_match', NOW())
                 ON CONFLICT (job_posting_id, skill_id) DO UPDATE
                 SET confidence_score = GREATEST(job_skills.confidence_score,
-                                                 EXCLUDED.confidence_score),
-                    needs_review = FALSE
+                                                 EXCLUDED.confidence_score)
                 """,
                 (job_id, skill_id),
             )
@@ -634,7 +634,6 @@ class JobProcessor:
         company_id: int | None,
         location_id: int | None,
         skills: list[str],
-        quality: float,
         employment_type: str = "unknown",
         experience_level: str = "unknown",
         salary_min: float | None = None,
@@ -655,8 +654,6 @@ class JobProcessor:
                 salary_min_original        = COALESCE(%s, salary_min_original),
                 salary_max_original        = COALESCE(%s, salary_max_original),
                 technologies_mentioned_json = %s,
-                data_quality_score         = %s,
-                processing_confidence      = %s,
                 processing_status          = 'processed'
             WHERE id = %s
             """,
@@ -671,8 +668,6 @@ class JobProcessor:
                 salary_min,
                 salary_max,
                 json.dumps(skills, ensure_ascii=False) if skills else None,
-                quality,
-                min(1.0, quality + 0.1),
                 job_id,
             ),
         )
@@ -681,8 +676,7 @@ class JobProcessor:
         self.conn.execute_with_transaction(
             """
             UPDATE job_postings
-            SET processing_status = 'failed',
-                manual_review_needed = TRUE
+            SET processing_status = 'failed'
             WHERE id = %s
             """,
             (job_id,),
@@ -743,12 +737,19 @@ class JobProcessor:
             return []
         lowered = text.lower()
         found: list[str] = []
-        for canonical, patterns in self.SKILL_PATTERNS.items():
+        for canonical, (_category, patterns) in self.SKILL_PATTERNS.items():
             for pattern in patterns:
                 if pattern.lower() in lowered:
                     found.append(canonical)
                     break
         return sorted(set(found))
+
+    @classmethod
+    def _skill_category(cls, skill_name: str) -> str:
+        entry = cls.SKILL_PATTERNS.get(skill_name)
+        if entry is None:
+            return _DEFAULT_SKILL_CATEGORY
+        return entry[0]
 
     @staticmethod
     def _normalize_text(text: str) -> str:
@@ -800,9 +801,9 @@ class JobProcessor:
         Try to extract salary figures from Persian job description text.
 
         Handles patterns like:
-          "۱,۵۰۰,۰۰۰ تومان"          → single value
+          "۱,۵۰۰,۰۰۰ تومان"                  → single value
           "از ۱,۰۰۰,۰۰۰ تا ۲,۰۰۰,۰۰۰ تومان"  → range
-          "حقوق توافقی"               → negotiable, skip
+          "حقوق توافقی"                       → negotiable, skip
 
         Returns (min_toman, max_toman) or (None, None).
         Toman stored as-is (salary_currency_original = 'IRR' but we pass raw Toman).
@@ -838,24 +839,3 @@ class JobProcessor:
                 pass
 
         return None, None
-
-    @staticmethod
-    def _compute_data_quality(
-        title_en: str | None,
-        desc_en: str | None,
-        company_id: int | None,
-        location_id: int | None,
-        skill_count: int,
-    ) -> float:
-        score = 0.0
-        if title_en:
-            score += 0.30
-        if desc_en:
-            score += 0.25
-        if company_id:
-            score += 0.20
-        if location_id:
-            score += 0.15
-        if skill_count > 0:
-            score += 0.10
-        return round(min(score, 1.0), 3)
